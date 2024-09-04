@@ -1,0 +1,12 @@
+{
+  "FilesizePolicies": [
+    { "Size":1,"Unit":"K","Percent": 100 }
+    ],
+  "SourceProtocol": "HTTP",
+  "TargetProtocol": "HTTP",
+  "Url": "https://10.128.144.168:8443/api/v2.0/files/Upload",
+  "User": "MFT_Runner",
+  "Password": "MFT_Runner",
+  "Timeout": 300,
+  "Type": "POST"
+}

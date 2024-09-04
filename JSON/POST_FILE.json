@@ -1,0 +1,32 @@
+{
+    "fileName": "string",
+    "newFilePath": "string",
+    "lastModifiedTime": 0,
+    "size": 0,
+    "isDirectory": false,
+    "isRegularFile": false,
+    "isSymbolicLink": false,
+    "isOther": false,
+    "group": "string",
+    "owner": "string",
+    "permissions": "string",
+    "isShared": false,
+    "transferStatus": "string",
+    "sharedDirectoryProperties": {
+      "ownerName": "string",
+      "ownerEmail": "string",
+      "isOwner": false,
+      "shareRights": 0,
+      "enableNotifications": false,
+      "enableOwnerNotifications": false,
+      "showCollaboratorsToAll": false,
+      "collaborators": [
+        "string"
+      ]
+    },
+    "customProperties": {
+      "additionalProp1": "string",
+      "additionalProp2": "string",
+      "additionalProp3": "string"
+    }
+  }

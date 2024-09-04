@@ -1,0 +1,12 @@
+{
+  "FilesizePolicies": [
+    { "Size":1,"Unit":"K","Percent": 100 }
+    ],
+  "SourceProtocol": "FTP",
+  "TargetProtocol": "HTTP",
+  "Url": "10.128.144.168:4021/Upload",
+  "User": "MFT_Runner",
+  "Password": "MFT_Runner",
+  "Timeout": 300,
+  "Type": "POST"
+}

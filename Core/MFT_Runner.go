@@ -1,220 +1,486 @@
-package main
+package Core
 
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"math/rand/v2"
+	"log"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-type Campaign struct {
-	SourceProtocol   string           `json:"sourceprotocol"`
-	TargetProtocol   string           `json:"targetprotocol"`
-	Url              string           `json:"url"`
-	User             string           `json:"user"`
-	Password         string           `json:"password"`
-	Type             string           `json:"type"`
-	Timeout          int              `json:"timeout"`
-	FilesizePolicies []FilesizePolicy `json:"filesizepolicies"`
-}
+// Add this struct definition
 type FilesizePolicy struct {
-	Size    int64  `json:"size"`
-	Unit    string `json:"unit"`
-	Percent int64  `json:"percent"`
+	Size    IntFromString `json:"size"`
+	Unit    string        `json:"unit"`
+	Percent int64         `json:"percent"`
+	Count   int           `json:"-"` // Derived field, not stored
 }
 
-func main() {
-	fmt.Printf(">>>>> MFT_Runner Program Started\n")
-	fmt.Printf("Analyzing Arguments [%v] : %v\n", len(os.Args), os.Args[1:])
-	if len(os.Args) == 2 && os.Args[1] == "init" {
-		fmt.Printf("Setting up SecureTransport : %v\n", os.Args[1])
-		err := createAccount("https://10.128.144.168:8444/api/v2.0/accountSetup", "admin", "admin")
-		if err != nil {
-			fmt.Printf("Something went wrong: %v\n", err)
-		}
-		os.Exit(1)
-	} else if len(os.Args) != 4 {
-		fmt.Printf("Bad arguments : %v\n", os.Args)
-		fmt.Printf("Expecting : [%v <campaign> <nb_client> <nb_requests>]", os.Args[0])
-		os.Exit(1)
-	}
-	campaign_arg := os.Args[1]
-	nbclient_arg := os.Args[2]
-	nbrequests_arg := os.Args[3]
-	nbclients, e := strconv.Atoi(nbclient_arg)
-	if e != nil {
-		fmt.Printf("Bad argument #1 : %v", nbclients)
-		os.Exit(1)
-	}
-	nbrequests, e := strconv.Atoi(nbrequests_arg)
-	if e != nil {
-		fmt.Printf("Bad argument #2 : %v", nbrequests)
-		os.Exit(1)
-	}
-	// Load JSON Campaign
-	campaign := loadCampaign(campaign_arg)
-	fmt.Printf("Using user/password: %v/%v \n", campaign.User, campaign.Password)
-	fmt.Printf("URL: %v\n", campaign.Url)
-	// Make Work Directory
-	startf := time.Now()
-	dirname := fileNameWithoutExtTrimSuffix(filepath.Base(campaign_arg)) + startf.Format("20060102150405")
-	makeDir(dirname)
+// Keep only the essential test configuration
+type TestConfig struct {
+	NumClients              int              `json:"num_clients"`  // Concurrent workers
+	NumRequests             int              `json:"num_requests"` // Total files to transfer
+	NumRequestsFirstClients int              `json:"num_requests_first_clients,omitempty"`
+	RampUp                  string           `json:"rampup"`
+	Type                    string           `json:"type"`
+	Protocol                string           `json:"protocol"`
+	Host                    string           `json:"host"`
+	Port                    int              `json:"port"`
+	FilesizePolicies        []FilesizePolicy `json:"filesizepolicies"`
+	TestID                  string           `json:"testid"`
+	RemotePath              string           `json:"remotepath"`
+	LocalPath               string           `json:"localpath"`
+	WorkerID                int              `json:"worker_id"`
+	Timeout                 int              `json:"timeout"`
+	Username                string           `json:"username"`
+	Password                string           `json:"password"`
+}
 
-	// SFTP parameters
-	var ipaddr string = ""
-	var port uint = 0
-	var targetdir string = ""
-	var dial string = ""
-	// In case of SFTP source protocol, we prepare a few more variables
-	if campaign.SourceProtocol == "SFTP" {
-		url_array := strings.Split(campaign.Url, ":")
-		if len(url_array) < 2 {
-			fmt.Printf("Bad URL in configuration file : %v", campaign.Url)
-			os.Exit(1)
-		}
-		ipaddr = url_array[0]
-		fmt.Println("Target Server : " + ipaddr)
-		sftp_port_dir_str := url_array[1]
-		sftp_port_dir_str_array := strings.Split(sftp_port_dir_str, "/")
-		if len(sftp_port_dir_str_array) < 2 {
-			fmt.Printf("Bad URL in configuration file : %v", campaign.Url)
-			os.Exit(1)
-		}
-		sftp_port_str := sftp_port_dir_str_array[0]
-		fmt.Println("Target Port : " + sftp_port_str)
-		targetdir = sftp_port_dir_str_array[1]
-		fmt.Println("Target Dir : " + targetdir)
-		portu, err := strconv.ParseUint(sftp_port_str, 10, 32)
-		if err != nil {
-			fmt.Printf("Bad Port number in configuration file : %v", campaign.Url)
-			os.Exit(1)
-		}
-		port = uint(portu)
-	} else if campaign.SourceProtocol == "FTP" {
-		url_array := strings.Split(campaign.Url, "/")
-		if len(url_array) < 2 {
-			fmt.Printf("Bad URL in configuration file : %v", campaign.Url)
-			os.Exit(1)
-		}
-		dial = url_array[0]
-		fmt.Println("Target FTP Dial : " + dial)
-		targetdir = url_array[1]
-		fmt.Println("Target Dir : " + targetdir)
+// ErrorHandler is a function type for handling test errors
+type ErrorHandler func(string)
+
+type TestReport struct {
+	Config      TestConfig       `json:"config"`
+	Summary     TestSummary      `json:"summary"`
+	Latencies   []float64        `json:"latencies"`
+	Throughputs []float64        `json:"throughputs"`
+	Errors      []string         `json:"errors"`
+	Timestamp   time.Time        `json:"timestamp"`
+	Duration    time.Duration    `json:"duration"`
+	TimeSeries  []TimeSeriesData `json:"time_series"`
+	mu          sync.Mutex
+}
+
+type TestSummary struct {
+	TotalRequests      int     `json:"total_requests"`
+	SuccessfulRequests int     `json:"successful_requests"`
+	FailedRequests     int     `json:"failed_requests"`
+	AvgLatencyMs       float64 `json:"avg_latency_ms"`
+	MinLatencyMs       float64 `json:"min_latency_ms"`
+	MaxLatencyMs       float64 `json:"max_latency_ms"`
+	Percentiles        struct {
+		P50 float64 `json:"p50"`
+		P90 float64 `json:"p90"`
+		P95 float64 `json:"p95"`
+		P99 float64 `json:"p99"`
+	} `json:"percentiles"`
+	ThroughputRps float64 `json:"throughput_rps"`
+}
+
+type transferResult struct {
+	success  bool
+	duration time.Duration
+	error    string
+}
+
+func NewTestReport(config TestConfig) *TestReport {
+	return &TestReport{
+		Config:      config,
+		Timestamp:   time.Now(),
+		Latencies:   make([]float64, 0),
+		Throughputs: make([]float64, 0),
+		Errors:      make([]string, 0),
+		TimeSeries:  make([]TimeSeriesData, 0),
 	}
-	// Make Work Files : only 1 per size
-	// Also prepares the size distribution arrays
-	fmt.Printf("Generating Work Files in ../Work/%v\n", dirname)
-	var fileDistributionWithName []string
-	for i := 0; i < len(campaign.FilesizePolicies); i++ {
-		sSize := strconv.FormatInt(campaign.FilesizePolicies[i].Size, 10)
-		var int64CalculatedSize = int64(1024)
-		fmt.Printf(" #%d - %s%s Files [%d]\n", i+1, sSize, campaign.FilesizePolicies[i].Unit, int(campaign.FilesizePolicies[i].Percent)*nbrequests/100+1)
-		if campaign.FilesizePolicies[i].Unit == "K" {
-			int64CalculatedSize = int64CalculatedSize * campaign.FilesizePolicies[i].Size
-		} else if campaign.FilesizePolicies[i].Unit == "M" {
-			int64CalculatedSize = int64CalculatedSize * 1024 * campaign.FilesizePolicies[i].Size
-		} else if campaign.FilesizePolicies[i].Unit == "G" {
-			int64CalculatedSize = int64CalculatedSize * 1024 * 1024 * campaign.FilesizePolicies[i].Size
+}
+
+func (r *TestReport) Finalize() {
+	r.Duration = time.Since(r.Timestamp)
+	r.Summary.TotalRequests = r.Summary.SuccessfulRequests + r.Summary.FailedRequests
+
+	// Handle all-failed case
+	if r.Summary.SuccessfulRequests == 0 && r.Summary.FailedRequests > 0 {
+		r.Summary.MinLatencyMs = 0
+		r.Summary.MaxLatencyMs = 0
+		r.Summary.AvgLatencyMs = 0
+	}
+
+	if len(r.Latencies) > 0 {
+		sort.Float64s(r.Latencies)
+
+		var total float64
+		r.Summary.MinLatencyMs = r.Latencies[0]
+		r.Summary.MaxLatencyMs = r.Latencies[len(r.Latencies)-1]
+
+		for _, l := range r.Latencies {
+			total += l
 		}
-		for j := 0; j < int(campaign.FilesizePolicies[i].Percent)*nbrequests/100+1; j++ {
-			fileDistributionWithName = append(fileDistributionWithName, "../Work/"+dirname+"/test_"+sSize+campaign.FilesizePolicies[i].Unit) //+"_"+strconv.Itoa(j)
-		}
-		makeFile("test_"+sSize+campaign.FilesizePolicies[i].Unit, dirname, int64CalculatedSize)
-		// If reqtype=GET we setup the Download files
-		if campaign.Type == "GET" {
-			if campaign.SourceProtocol == "HTTP" {
-				multipartCall("", 300, campaign.Url, campaign.User, campaign.Password, "POST", "../Work/"+dirname+"/test_"+sSize+campaign.FilesizePolicies[i].Unit)
-			} else if campaign.SourceProtocol == "SFTP" {
-				SSH_Operation("", campaign.User, ipaddr, port, campaign.Password, "../Work/"+dirname+"/test_"+sSize+campaign.FilesizePolicies[i].Unit, targetdir, 300, "POST")
-			} else if campaign.SourceProtocol == "FTP" {
-				FTP_Operation("", campaign.User, dial, campaign.Password, "../Work/"+dirname+"/test_"+sSize+campaign.FilesizePolicies[i].Unit, targetdir, 300, "POST")
+		r.Summary.AvgLatencyMs = total / float64(len(r.Latencies))
+
+		// Percentile calculations
+		r.Summary.Percentiles.P50 = percentile(r.Latencies, 0.5)
+		r.Summary.Percentiles.P90 = percentile(r.Latencies, 0.9)
+		r.Summary.Percentiles.P95 = percentile(r.Latencies, 0.95)
+		r.Summary.Percentiles.P99 = percentile(r.Latencies, 0.99)
+	}
+
+	if r.Duration.Seconds() > 0 && r.Summary.SuccessfulRequests > 0 {
+		r.Summary.ThroughputRps = float64(r.Summary.SuccessfulRequests) / r.Duration.Seconds()
+	}
+}
+
+func percentile(sortedData []float64, p float64) float64 {
+	index := p * float64(len(sortedData)-1)
+	if index == float64(int(index)) {
+		return sortedData[int(index)]
+	}
+	i := int(index)
+	f := index - float64(i)
+	return sortedData[i]*(1-f) + sortedData[i+1]*f
+}
+
+// Log formatting constants
+const (
+	colorReset  = "\033[0m"
+	colorCyan   = "\033[36m"
+	colorYellow = "\033[33m"
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	logPrefix   = "[MFT] "
+)
+
+func RunMFTTest(config *TestConfig, onError ErrorHandler) (*TestReport, error) {
+	fmt.Printf("\n%s%s=== STARTING TEST: %s ===%s\n", colorCyan, logPrefix, config.TestID, colorReset)
+	defer fmt.Printf("\n%s%s=== TEST COMPLETED ===%s\n", colorCyan, logPrefix, colorReset)
+
+	// Use configured values instead of raw arguments
+	numClients := config.NumClients
+	numRequests := config.NumRequests
+
+	fmt.Printf("%s%s%-18s: %s%s:%d%s\n", colorReset, logPrefix, "Protocol", colorCyan, config.Host, config.Port, colorReset)
+	fmt.Printf("%s%s%-18s: %s%d workers%s\n", colorReset, logPrefix, "Concurrency", colorCyan, config.NumClients, colorReset)
+	fmt.Printf("%s%s%-18s: %s%d transfers%s\n", colorReset, logPrefix, "Total Transfers", colorCyan, config.NumClients*config.NumRequests, colorReset)
+	fmt.Printf("%s%s%-18s: %s%.2f KB avg%s\n", colorReset, logPrefix, "File Size", colorCyan, averageFileSize(config), colorReset)
+
+	var wg sync.WaitGroup
+	results := make(chan transferResult, numClients*numRequests)
+
+	log.Printf("Creating %d test clients", numClients)
+	for i := 0; i < numClients; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			log.Printf("Worker %d starting...", workerID)
+
+			// Create worker-specific config copy
+			workerConfig := *config
+			workerConfig.WorkerID = workerID
+
+			for j := 0; j < numRequests; j++ {
+				transferNum := j + 1
+				result := executeTransfer(workerConfig, transferNum, onError)
+				results <- result
+
+				if j%10 == 0 {
+					log.Printf("Worker %d completed %d/%d transfers", workerID, transferNum, numRequests)
+				}
 			}
-			fmt.Printf(" >> File of Size %v uploaded in MFT_Runner/Download\n", int64CalculatedSize)
+			log.Printf("Worker %d finished all transfers", workerID)
+		}(i + 1)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+		log.Printf("All clients completed their transfers")
+	}()
+
+	// Create report with initial counts
+	report := &TestReport{
+		Config:      *config,
+		Timestamp:   time.Now(),
+		Latencies:   make([]float64, 0),
+		Throughputs: make([]float64, 0),
+		Errors:      make([]string, 0),
+		TimeSeries:  make([]TimeSeriesData, 0),
+		Summary: TestSummary{
+			TotalRequests: numClients * numRequests,
+		},
+	}
+
+	// Process results...
+	for result := range results {
+		if result.success {
+			report.Latencies = append(report.Latencies, result.duration.Seconds()*1000)
+			report.Summary.SuccessfulRequests++
+		} else {
+			if result.error != "" {
+				report.Errors = append(report.Errors, result.error)
+			}
+			report.Summary.FailedRequests++
 		}
 	}
 
-	// Shuffle fileDistributionWithName array
-	for i := range fileDistributionWithName {
-		j := rand.IntN(i + 1)
-		fileDistributionWithName[i], fileDistributionWithName[j] = fileDistributionWithName[j], fileDistributionWithName[i]
+	// Calculate percentages
+	var successPercent, failPercent float64
+	if report.Summary.TotalRequests > 0 {
+		successPercent = float64(report.Summary.SuccessfulRequests) / float64(report.Summary.TotalRequests) * 100
+		failPercent = float64(report.Summary.FailedRequests) / float64(report.Summary.TotalRequests) * 100
 	}
-	fmt.Println(len(fileDistributionWithName))
-	// for j := 0; j < len(fileDistributionWithName); j++ {
-	// 	fmt.Println(fileDistributionWithName[j])
-	// }
-	// sPercent := strconv.FormatInt(campaign.FilesizePolicies[i].Percent, 10)
-	// Start the Concurrent Clients test
-	start := time.Now()
-	fmt.Println("===========================================================================")
-	fmt.Println("> Running Campaign " + campaign_arg + " with " + nbclient_arg + " concurrent Clients")
-	var numJobs = nbrequests
-	jobs := make(chan int, numJobs)
-	results := make(chan int, numJobs)
-	for w := 1; w <= nbclients; w++ {
-		go worker(w, campaign.Url, campaign.Timeout, campaign.User, campaign.Password, campaign.Type, jobs, results, fileDistributionWithName, campaign.SourceProtocol, ipaddr, port, targetdir, dial)
-	}
-	// Feed jobs into workers
-	for j := 1; j <= numJobs; j++ {
-		jobs <- j
-	}
-	close(jobs)
 
-	for a := 1; a <= numJobs; a++ {
-		<-results
-	}
-	elapsed := time.Since(start)
-	fmt.Printf("MFT_Runner took %s to send %s requests from %s clients.", elapsed, nbrequests_arg, nbclient_arg)
-}
-func fileNameWithoutExtTrimSuffix(fileName string) string {
-	return strings.TrimSuffix(fileName, filepath.Ext(fileName))
-}
-func worker(id int, urlstr string, maxtimeout int, username string, password string, reqtype string, jobs <-chan int, results chan<- int, fileDistributionWithName []string, sourceprotocol string, ipaddr string, port uint, targetdir string, dial string) {
-	for j := range jobs {
-		fmt.Println(sourceprotocol, "worker", id, "started  job", j)
-		if sourceprotocol == "HTTP" {
-			multipartCall(strconv.Itoa(j), maxtimeout, urlstr, username, password, reqtype, fileDistributionWithName[j-1])
-		} else if sourceprotocol == "SFTP" {
-			// time.Sleep(time.Second * 1)
-			SSH_Operation(strconv.Itoa(j), username, ipaddr, port, password, fileDistributionWithName[j-1], targetdir, maxtimeout, reqtype)
-		} else if sourceprotocol == "FTP" {
-			// time.Sleep(time.Second * 1)
-			FTP_Operation(strconv.Itoa(j), username, dial, password, fileDistributionWithName[j-1], targetdir, maxtimeout, reqtype)
-		}
-		fmt.Println(sourceprotocol, "worker", id, "finished job", j)
-		// time.Sleep(time.Second)
-		results <- j * 2
-	}
+	// Log summary after all results are processed
+	fmt.Printf("\n%s%s=== TEST SUMMARY ===%s", colorCyan, logPrefix, colorReset)
+	fmt.Printf("\n%s%s%-20s: %s%d%s", colorReset, logPrefix, "Total Transfers", colorCyan, report.Summary.TotalRequests, colorReset)
+	fmt.Printf("\n%s%s%-20s: %s%d (%.1f%%)%s", colorReset, logPrefix, "Successful", colorGreen, report.Summary.SuccessfulRequests, successPercent, colorReset)
+	fmt.Printf("\n%s%s%-20s: %s%d (%.1f%%)%s", colorReset, logPrefix, "Failed", colorRed, report.Summary.FailedRequests, failPercent, colorReset)
+	fmt.Printf("\n%s%s%-20s: %s%.2f req/s%s", colorReset, logPrefix, "Throughput", colorCyan, report.Summary.ThroughputRps, colorReset)
+	fmt.Printf("\n%s%s%-20s: %s%.2fms%s", colorReset, logPrefix, "Avg Latency", colorCyan, report.Summary.AvgLatencyMs, colorReset)
+
+	defer os.RemoveAll(fmt.Sprintf("testfiles/%s", config.TestID)) // Cleanup files
+
+	// Return report for writing in main
+	return report, nil
 }
 
-// func pickFile(fileDistributionWithName []string) (file string) {
-// 	rng := rand.IntN(len(fileDistributionWithName))
-// 	file = fileDistributionWithName[rng]
-// 	return
-// }
-
-func loadCampaign(campaignfile string) (campaign Campaign) {
-	fmt.Println("Loading Campaign " + campaignfile + "...")
-	jsonFile, err := os.Open(campaignfile)
+func loadTestConfig(path string) (*TestConfig, error) {
+	log.Printf("Loading campaign file: %s", path)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return nil, fmt.Errorf("error reading config file: %w", err)
 	}
-	defer jsonFile.Close()
-	byteValue, _ := io.ReadAll(jsonFile)
-	json.Unmarshal(byteValue, &campaign)
-	fmt.Println("Campaign Loaded Successfully.")
-	// fmt.Println("> User/Pwd: " + campaign.User + "/" + campaign.Password)
-	// fmt.Println("> Source Protocol: " + campaign.SourceProtocol)
-	// fmt.Println("> Target Protocol: " + campaign.TargetProtocol)
-	// fmt.Println("> File Size Policies:")
-	// for i := 0; i < len(campaign.FilesizePolicies); i++ {
-	// 	s := strconv.FormatInt(campaign.FilesizePolicies[i].Percent, 10)
-	// 	fmt.Println("   - " + campaign.FilesizePolicies[i].Size + " : " + s + "%")
-	// }
-	return
+
+	var config TestConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("error parsing config JSON: %w", err)
+	}
+	return &config, nil
+}
+
+// Helper function to select file size based on distribution
+func selectFileSize(policies []FilesizePolicy) *FilesizePolicy {
+	// Generate random number between 0 and 100
+	r := rand.Float64() * 100
+
+	// Accumulate percentages and select appropriate policy
+	var accum float64
+	for i := range policies {
+		accum += float64(policies[i].Percent)
+		if r <= accum {
+			return &policies[i]
+		}
+	}
+
+	// Fallback to last policy if rounding issues
+	return &policies[len(policies)-1]
+}
+
+// formatSize converts filesize policy to human-readable string
+func formatSize(policy *FilesizePolicy) string {
+	unit := strings.ToUpper(policy.Unit)
+	switch unit {
+	case "K":
+		unit = "KB"
+	case "M":
+		unit = "MB"
+	case "G":
+		unit = "GB"
+	}
+	return fmt.Sprintf("%d%s", policy.Size, unit)
+}
+
+func executeTransfer(config TestConfig, transferID int, onError ErrorHandler) transferResult {
+	workerID := config.WorkerID
+	policy := selectFileSize(config.FilesizePolicies)
+
+	fmt.Printf("%s%sWorker %d - Starting transfer %d (%s)%s\n",
+		colorReset, logPrefix, workerID, transferID, formatSize(policy), colorReset)
+
+	start := time.Now()
+
+	if policy.Count < 1 {
+		log.Printf("Worker %d Transfer %d: No files available for policy", workerID, transferID)
+		return transferResult{success: false, duration: 0, error: ""}
+	}
+
+	// Get random file from manifest
+	fileList := getFileList(config.TestID)
+	if len(fileList) == 0 {
+		log.Printf("Worker %d Transfer %d: No files available", workerID, transferID)
+		return transferResult{success: false, duration: 0, error: ""}
+	}
+	selectedFile := fileList[rand.Intn(len(fileList))]
+
+	// Get existing test file
+	filePath := filepath.Join("Work", "testfiles", config.TestID, selectedFile)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		log.Printf("Worker %d Transfer %d: Test file missing - %v", workerID, transferID, err)
+		onError(fmt.Sprintf("Test file missing: %s", filePath))
+		return transferResult{
+			success:  false,
+			duration: time.Since(start),
+			error:    fmt.Sprintf("file_not_found: %s", filePath),
+		}
+	}
+
+	var remoteName string
+	if config.Type == "Upload" {
+		// Generate unique name only for uploads
+		remoteName = fmt.Sprintf("%s_%d_%d_%d.dat",
+			strings.TrimSuffix(selectedFile, filepath.Ext(selectedFile)),
+			time.Now().UnixNano(),
+			workerID,
+			transferID,
+		)
+	} else {
+		// Use original filename for downloads
+		remoteName = selectedFile
+	}
+
+	// Create a channel to signal completion
+	done := make(chan bool)
+	var transferErr error
+
+	// Execute transfer in goroutine
+	go func() {
+		fmt.Printf("%s%sWorker %d - Transfer %d: %s %s to %s%s\n",
+			colorReset, logPrefix, workerID, transferID, config.Type,
+			formatSize(policy), config.RemotePath, colorReset)
+		switch config.Protocol {
+		case "FTP":
+			if config.Type == "Upload" {
+				transferErr = FTPUpload(filePath, remoteName, &config, workerID, transferID)
+			} else {
+				transferErr = FTPDownload(filePath, remoteName, &config, workerID)
+			}
+		case "SFTP":
+			if config.Type == "Upload" {
+				transferErr = SFTPUpload(filePath, remoteName, &config)
+			} else {
+				transferErr = SFTPDownload(remoteName, filePath, &config)
+			}
+		case "HTTP":
+			if config.Type == "Upload" {
+				transferErr = HTTPUpload(filePath, &config)
+			} else {
+				transferErr = HTTPDownload(config.RemotePath, &config)
+			}
+		default:
+			log.Printf("Unsupported protocol: %s", config.Protocol)
+			transferErr = fmt.Errorf("unsupported protocol: %s", config.Protocol)
+		}
+		done <- true
+	}()
+
+	// Wait for either completion or timeout
+	select {
+	case <-done:
+		duration := time.Since(start)
+		if transferErr != nil {
+			fmt.Printf("%s%sWorker %d - Failed after %s | %s | Error: %s%s\n",
+				colorRed, logPrefix, workerID, duration.Round(time.Millisecond), selectedFile, transferErr.Error(), colorReset)
+			onError(fmt.Sprintf("Transfer failed: %v", transferErr))
+			return transferResult{success: false, duration: duration, error: transferErr.Error()}
+		}
+		fmt.Printf("%s%sWorker %d - Completed in %s | %s%s\n",
+			colorGreen, logPrefix, workerID, duration.Round(time.Millisecond), selectedFile, colorReset)
+		return transferResult{success: true, duration: duration}
+	case <-time.After(time.Duration(config.Timeout) * time.Second):
+		log.Printf("Transfer %s timed out after %ds", selectedFile, config.Timeout)
+		onError(fmt.Sprintf("Transfer %s timed out after %ds", selectedFile, config.Timeout))
+		return transferResult{
+			success:  false,
+			duration: time.Duration(config.Timeout) * time.Second,
+			error:    fmt.Sprintf("timeout_%ds: %s", config.Timeout, selectedFile),
+		}
+	}
+}
+
+func init() {
+	rand.NewSource(time.Now().UnixNano())
+}
+
+// IntFromString handles both string and number JSON values
+type IntFromString int64
+
+func (i *IntFromString) UnmarshalJSON(b []byte) error {
+	var v interface{}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+
+	switch value := v.(type) {
+	case float64:
+		*i = IntFromString(value)
+	case string:
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid number string: %s", value)
+		}
+		*i = IntFromString(parsed)
+	default:
+		return fmt.Errorf("invalid type for size: %T", value)
+	}
+	return nil
+}
+
+func (r *TestReport) WriteToFile(path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(r)
+}
+
+type TimeSeriesData struct {
+	Timestamp     time.Time `json:"timestamp"`
+	Requests      int       `json:"requests"`
+	Errors        int       `json:"errors"`
+	AvgLatencyMs  float64   `json:"avg_latency_ms"`
+	ThroughputRPS float64   `json:"throughput_rps"`
+}
+
+func (r *TestReport) AddTimeSeriesSample() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Calculate current window stats
+	success := len(r.Latencies)
+	failed := len(r.Errors)
+	total := success + failed
+
+	var avgLatency float64
+	if success > 0 {
+		var sum float64
+		for _, l := range r.Latencies {
+			sum += l
+		}
+		avgLatency = sum / float64(success)
+	}
+
+	r.TimeSeries = append(r.TimeSeries, TimeSeriesData{
+		Timestamp:     time.Now(),
+		Requests:      total,
+		Errors:        failed,
+		AvgLatencyMs:  avgLatency,
+		ThroughputRPS: float64(total) / time.Since(r.Timestamp).Seconds(),
+	})
+}
+
+// averageFileSize calculates average file size in KB
+func averageFileSize(config *TestConfig) float64 {
+	var totalKB float64
+	for _, p := range config.FilesizePolicies {
+		sizeKB := float64(p.Size)
+		switch strings.ToUpper(p.Unit) {
+		case "M":
+			sizeKB *= 1024
+		case "G":
+			sizeKB *= 1024 * 1024
+		case "K":
+		default: // Assume bytes
+			sizeKB /= 1024
+		}
+		totalKB += sizeKB * float64(p.Percent) / 100
+	}
+	return totalKB
 }

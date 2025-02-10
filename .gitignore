@@ -1,0 +1,73 @@
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+
+# Go
+/bin/
+/pkg/
+*.exe
+*.dll
+*.so
+*.test
+*.out
+
+# Node.js
+frontend/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.env/
+venv/
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+
+# Log files
+*.log
+logs/
+
+# Local development
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Build files
+dist/
+frontend/build/
+out/
+coverage/
+.nyc_output/
+
+# Test artifacts
+junit.xml
+test-results.xml
+
+# Temporary files
+*.tmp
+*.temp 
+frontend/node_modules/*
+test_history.json
+
+# New files from the code block
+frontend/public/logs/
+frontend/public/logs/latest.log
+
+Work/*
+TestReports/*
+ftpreceive/*

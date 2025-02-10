@@ -1,4 +1,4 @@
-package main
+package Core
 
 import (
 	"bytes"
@@ -118,6 +118,7 @@ func Download(id string, client http.Client, targetfile string, downloadfilename
 	defer res.Body.Close()
 	return nil
 }
+
 func mustOpen(f string) *os.File {
 	r, err := os.Open(f)
 	if err != nil {
@@ -131,4 +132,52 @@ type Post struct {
 	ID     int    `json:"id"`
 	Title  string `json:"title"`
 	Body   string `json:"body"`
+}
+
+func HTTPUpload(filePath string, config *TestConfig) error {
+	url := fmt.Sprintf("http://%s:%d%s", config.Host, config.Port, config.RemotePath)
+	file, err := os.Open(filePath)
+	if err != nil {
+		return err
+
+	}
+	defer file.Close()
+
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	resp, err := client.Post(url, "application/octet-stream", file)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("HTTP error: %s", resp.Status)
+	}
+	return nil
+}
+
+func HTTPDownload(filePath string, config *TestConfig) error {
+	url := fmt.Sprintf("http://%s:%d%s", config.Host, config.Port, config.RemotePath)
+	client := &http.Client{Timeout: 30 * time.Second}
+
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("HTTP error: %s", resp.Status)
+	}
+
+	file, err := os.CreateTemp("", "http-download-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(file.Name())
+
+	_, err = io.Copy(file, resp.Body)
+	return err
 }

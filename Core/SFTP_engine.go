@@ -1,11 +1,14 @@
-package main
+package Core
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/melbahja/goph"
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -65,4 +68,76 @@ func SSH_Operation(id string, user string, ipaddr string, port uint, password st
 	// out, err := client.Run("ls /Upload/")
 	// err := client.Download("/path/to/remote/file", "/path/to/local/file")
 	// out, err := client.Run("bash -c 'printenv'")
+}
+
+func SFTPUpload(filePath, remoteName string, config *TestConfig) error {
+	sshConfig := &ssh.ClientConfig{
+		User:            config.Username,
+		Auth:            []ssh.AuthMethod{ssh.Password(config.Password)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	conn, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), sshConfig)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client, err := sftp.NewClient(conn)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	srcFile, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := client.Create(filepath.Join(config.RemotePath, remoteName))
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = dstFile.ReadFrom(srcFile)
+	return err
+}
+
+func SFTPDownload(remoteName, localPath string, config *TestConfig) error {
+	remotePath := filepath.Join(config.RemotePath, remoteName)
+
+	sshConfig := &ssh.ClientConfig{
+		User:            config.Username,
+		Auth:            []ssh.AuthMethod{ssh.Password(config.Password)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	conn, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), sshConfig)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client, err := sftp.NewClient(conn)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	srcFile, err := client.Open(remotePath)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	file, err := os.Create(localPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = io.Copy(file, srcFile)
+	return err
 }

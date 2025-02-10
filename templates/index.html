@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>MFT Performance Testing Dashboard</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --secondary-color: #1e40af;
+            --success-color: #22c55e;
+            --warning-color: #eab308;
+            --error-color: #ef4444;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-700: #374151;
+            --gray-800: #1f2937;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--gray-100);
+            color: var(--gray-800);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .card {
+            background: white;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            margin-bottom: 24px;
+        }
+
+        .card h2 {
+            margin: 0 0 16px 0;
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--gray-700);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 2fr 3fr;
+            gap: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: var(--gray-700);
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--gray-200);
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--secondary-color);
+        }
+
+        .btn-secondary {
+            background-color: var(--gray-200);
+            color: var(--gray-700);
+        }
+
+        .btn-secondary:hover {
+            background-color: var(--gray-300);
+        }
+
+        .status {
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .status.running {
+            background-color: var(--warning-color);
+            color: white;
+        }
+
+        .status.completed {
+            background-color: var(--success-color);
+            color: white;
+        }
+
+        .status.error {
+            background-color: var(--error-color);
+            color: white;
+        }
+
+        #campaign-json {
+            background: var(--gray-100);
+            padding: 16px;
+            border-radius: 6px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--gray-200);
+        }
+
+        th {
+            font-weight: 600;
+            color: var(--gray-700);
+            background-color: var(--gray-100);
+        }
+
+        .campaign-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+            padding: 16px;
+            background-color: var(--gray-100);
+            border-radius: 6px;
+        }
+
+        .campaign-info-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .campaign-info-item label {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--gray-700);
+            margin-bottom: 4px;
+        }
+
+        .campaign-info-item span {
+            font-size: 14px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background-color: var(--gray-200);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background-color: var(--primary-color);
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>MFT Performance Testing Dashboard</h1>
+            <button class="btn-secondary" onclick="refreshResults()">Refresh Results</button>
+        </div>
+
+        <div class="grid">
+            <div>
+                <div class="card">
+                    <h2>Campaign Selection</h2>
+                    <div class="form-group">
+                        <select id="campaign-select" onchange="showCampaignDetails()">
+                            <option value="">Select a campaign...</option>
+                        </select>
+                    </div>
+                    <div id="campaign-details" style="display: none;">
+                        <div class="campaign-info">
+                            <div class="campaign-info-item">
+                                <label>Protocol</label>
+                                <span id="protocol-info"></span>
+                            </div>
+                            <div class="campaign-info-item">
+                                <label>URL</label>
+                                <span id="url-info"></span>
+                            </div>
+                            <div class="campaign-info-item">
+                                <label>Type</label>
+                                <span id="type-info"></span>
+                            </div>
+                            <div class="campaign-info-item">
+                                <label>Timeout</label>
+                                <span id="timeout-info"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Test Configuration</h2>
+                    <form id="test-form" onsubmit="startTest(event)">
+                        <input type="hidden" id="campaign" name="campaign">
+                        <div class="form-group">
+                            <label for="numClients">Number of Clients</label>
+                            <input type="number" id="numClients" required min="1" value="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="numRequests">Number of Requests</label>
+                            <input type="number" id="numRequests" required min="1" value="10">
+                        </div>
+                        <button type="submit" class="btn-primary">Start Test</button>
+                    </form>
+                </div>
+            </div>
+
+            <div>
+                <div class="card">
+                    <h2>Current Test Status</h2>
+                    <div id="current-status">No test running</div>
+                    <div class="progress-bar" style="margin-top: 16px;">
+                        <div class="progress-bar-fill" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Test Results</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Test ID</th>
+                                <th>Campaign</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function startTest(event) {
+            event.preventDefault();
+
+            const params = {
+                campaign: document.getElementById('campaign').value,
+                numClients: parseInt(document.getElementById('numClients').value),
+                numRequests: parseInt(document.getElementById('numRequests').value)
+            };
+
+            try {
+                const response = await fetch('/api/tests/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(params)
+                });
+                const data = await response.json();
+                refreshResults();
+                updateStatus();
+            } catch (error) {
+                console.error('Error starting test:', error);
+            }
+        }
+
+        async function refreshResults() {
+            try {
+                const response = await fetch('/api/tests');
+                const data = await response.json();
+                updateResultsTable(data);
+            } catch (error) {
+                console.error('Error fetching results:', error);
+            }
+        }
+
+        async function updateStatus() {
+            try {
+                const response = await fetch('/api/tests/status');
+                const data = await response.json();
+                const statusDiv = document.getElementById('current-status');
+                const progressBar = document.querySelector('.progress-bar-fill');
+
+                if (data.running) {
+                    statusDiv.innerHTML = `
+                        <div class="status running">
+                            Test ${data.testId} in progress
+                        </div>
+                    `;
+                    progressBar.style.width = `${data.progress}%`;
+                    setTimeout(updateStatus, 1000);
+                } else {
+                    statusDiv.innerHTML = 'No test running';
+                    progressBar.style.width = '0%';
+                }
+            } catch (error) {
+                console.error('Error updating status:', error);
+            }
+        }
+
+        function updateResultsTable(results) {
+            const tbody = document.getElementById('results-body');
+            tbody.innerHTML = '';
+
+            results.forEach(result => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${result.id}</td>
+                    <td>${result.campaign}</td>
+                    <td><div class="status ${result.status.toLowerCase()}">${result.status}</div></td>
+                    <td>${result.duration.toFixed(2)}s</td>
+                    <td>
+                        <button class="btn-secondary" onclick="viewDetails('${result.id}')">
+                            Details
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        function viewDetails(testId) {
+            // Implement viewing detailed results
+            console.log('Viewing details for test:', testId);
+        }
+
+        async function loadCampaigns() {
+            try {
+                const response = await fetch('/api/campaigns');
+                const campaigns = await response.json();
+                const select = document.getElementById('campaign-select');
+                select.innerHTML = '<option value="">Select a campaign...</option>';
+
+                campaigns.forEach(campaign => {
+                    const option = document.createElement('option');
+                    option.value = campaign.path;
+                    option.textContent = campaign.filename;
+                    option.dataset.details = JSON.stringify(campaign.details);
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error loading campaigns:', error);
+            }
+        }
+
+        function showCampaignDetails() {
+            const select = document.getElementById('campaign-select');
+            const details = document.getElementById('campaign-details');
+
+            if (select.value) {
+                const option = select.selectedOptions[0];
+                const campaign = JSON.parse(option.dataset.details);
+                details.style.display = 'block';
+
+                // Update campaign info
+                document.getElementById('protocol-info').textContent =
+                    `${campaign.sourceprotocol} → ${campaign.targetprotocol}`;
+                document.getElementById('url-info').textContent = campaign.url;
+                document.getElementById('type-info').textContent = campaign.type;
+                document.getElementById('timeout-info').textContent = `${campaign.timeout}s`;
+
+                // Update hidden form value
+                document.getElementById('campaign').value = select.value;
+            } else {
+                details.style.display = 'none';
+            }
+        }
+
+        // Initial load
+        refreshResults();
+        updateStatus();
+        loadCampaigns();
+    </script>
+</body>
+
+</html>

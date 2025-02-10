@@ -7,10 +7,55 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/jlaffaye/ftp"
 )
+
+type FTPConnPool struct {
+	pool   chan *ftp.ServerConn
+	config *TestConfig
+	mu     sync.Mutex
+}
+
+func NewFTPConnPool(config *TestConfig, max int) *FTPConnPool {
+	return &FTPConnPool{
+		pool:   make(chan *ftp.ServerConn, max),
+		config: config,
+	}
+}
+
+func (p *FTPConnPool) Get() (*ftp.ServerConn, error) {
+	select {
+	case conn := <-p.pool:
+		return conn, nil
+	default:
+		return p.createConnection()
+	}
+}
+
+func (p *FTPConnPool) Put(conn *ftp.ServerConn) {
+	select {
+	case p.pool <- conn:
+	default:
+		conn.Quit()
+	}
+}
+
+func (p *FTPConnPool) createConnection() (*ftp.ServerConn, error) {
+	conn, err := ftp.Dial(fmt.Sprintf("%s:%d", p.config.Host, p.config.Port),
+		ftp.DialWithTimeout(time.Duration(p.config.Timeout)*time.Second))
+	if err != nil {
+		return nil, fmt.Errorf("connection failed: %w", err)
+	}
+
+	if err := conn.Login(p.config.Username, p.config.Password); err != nil {
+		return nil, fmt.Errorf("login failed: %w", err)
+	}
+
+	return conn, nil
+}
 
 func FTP_Operation(id string, user string, dial string, password string, sourcefile string, targetdir string, maxtimeout int, reqtype string) {
 	fmt.Println("Logging in " + user + "/" + password + " @ " + dial)
@@ -54,26 +99,42 @@ func FTP_Operation(id string, user string, dial string, password string, sourcef
 }
 
 func FTPUpload(filePath, remoteName string, config *TestConfig, workerID, transferID int) error {
+	start := time.Now()
 	log.Printf("Worker %d Transfer %d: Starting FTP upload", workerID, transferID)
-	conn, err := ftp.Dial(fmt.Sprintf("%s:%d", config.Host, config.Port))
-	if err != nil {
-		log.Printf("Worker %d Transfer %d: Connection failed - %v", workerID, transferID, err)
-		return err
-	}
-	defer conn.Quit()
 
-	if err := conn.Login(config.Username, config.Password); err != nil {
-		return err
+	pool := NewFTPConnPool(config, 5)
+	conn, err := pool.Get()
+	if err != nil {
+		return fmt.Errorf("connection error: %w", err)
 	}
+	defer pool.Put(conn)
 
 	file, err := os.Open(filePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("file open error: %w", err)
 	}
 	defer file.Close()
 
+	// Start transfer timer after connection is established
+	transferStart := time.Now()
 	remotePath := filepath.Join(config.RemotePath, remoteName)
-	return conn.Stor(remotePath, file)
+	err = conn.Stor(remotePath, file)
+	transferDuration := time.Since(transferStart)
+
+	log.Printf("Worker %d Transfer %d: Transfer duration %s",
+		workerID, transferID, transferDuration.Round(time.Millisecond))
+
+	if err != nil {
+		return fmt.Errorf("transfer error: %w", err)
+	}
+
+	totalDuration := time.Since(start)
+	if totalDuration > time.Duration(config.Timeout)*time.Second {
+		log.Printf("Worker %d Transfer %d: Total operation time exceeded timeout (%s)",
+			workerID, transferID, totalDuration)
+	}
+
+	return nil
 }
 
 func FTPDownload(filePath, remoteName string, config *TestConfig, workerID int) error {

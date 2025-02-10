@@ -8,13 +8,15 @@
     "@mui/icons-material": "^5.16.14",
     "@mui/material": "^5.16.14",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-dropzone": "^14.3.5",
+    "recharts": "^2.15.1"
   },
   "devDependencies": {
+    "@emotion/babel-plugin": "^11.11.0",
     "@types/react": "^18.2.64",
     "@types/react-dom": "^18.2.21",
     "@vitejs/plugin-react": "^4.2.1",
-    "@emotion/babel-plugin": "^11.11.0",
     "vite": "^5.1.4"
   },
   "scripts": {

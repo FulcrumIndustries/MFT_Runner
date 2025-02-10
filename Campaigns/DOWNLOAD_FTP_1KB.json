@@ -4,12 +4,12 @@
   "Type": "Download",
   "Name": "DOWNLOAD_FTP_1KB",
   "Timeout": 5,
-  "Host": "10.128.144.168",
-  "Port": 4021,
+  "Host": "localhost",
+  "Port": 2121,
   "Username": "ftp",
   "Password": "ftp",
   "LocalPath": "path/to/local/file",
-  "RemotePath": "/file.txt",
+  "RemotePath": "/A/",
   "RampUp": "1s",
   "HoldFor": "10s"
 }

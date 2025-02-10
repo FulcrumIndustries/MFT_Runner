@@ -3,6 +3,7 @@ import threading
 from pyftpdlib.authorizers import DummyAuthorizer
 from pyftpdlib.handlers import FTPHandler
 from pyftpdlib.servers import FTPServer
+from concurrent.futures import ThreadPoolExecutor
 
 # Configuration
 FTP_USER = "ftp"
@@ -29,8 +30,20 @@ def start_ftp_server():
     handler.authorizer = authorizer
     handler.banner = "MFT Test FTP Server Ready"
     
+    # Add these performance configurations
+    handler.max_cons = 50  # Maximum simultaneous connections
+    handler.max_cons_per_ip = 30  # Maximum connections from single IP
+    handler.timeout = 300  # Connection timeout in seconds
+    handler.use_sendfile = True  # Use efficient file transfer
+    handler.tcp_no_delay = True  # Reduce latency
+
+    # Configure thread pool executor
+    handler.thread_pool = ThreadPoolExecutor(max_workers=30)
+
     # Bind to localhost only
     server = FTPServer(("127.0.0.1", FTP_PORT), handler)
+    server.max_cons = 50  # Match handler setting
+    server.max_cons_per_ip = 50
     
     print(f"📁 FTP Server listening on port {FTP_PORT}")
     print(f"📂 Saving files to: {RECEIVE_DIR}")

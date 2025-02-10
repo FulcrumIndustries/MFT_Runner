@@ -31,10 +31,6 @@ func MakeFile(filename string, directory string, size int64) error {
 	return nil
 }
 
-func generateFile(filename string, size int64) error {
-	return MakeFile(filename, "", size)
-}
-
 func CreateTestFiles(config TestConfig, totalRequests int) error {
 	baseDir := filepath.Join("Work", "testfiles", config.TestID)
 	os.MkdirAll(baseDir, 0755)

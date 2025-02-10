@@ -46,31 +46,48 @@ type TestConfig struct {
 type ErrorHandler func(string)
 
 type TestReport struct {
-	Config      TestConfig       `json:"config"`
-	Summary     TestSummary      `json:"summary"`
-	Latencies   []float64        `json:"latencies"`
-	Throughputs []float64        `json:"throughputs"`
-	Errors      []string         `json:"errors"`
-	Timestamp   time.Time        `json:"timestamp"`
-	Duration    time.Duration    `json:"duration"`
-	TimeSeries  []TimeSeriesData `json:"time_series"`
-	mu          sync.Mutex
+	Config        TestConfig       `json:"config"`
+	Summary       TestSummary      `json:"summary"`
+	Latencies     []float64        `json:"latencies"`
+	Throughputs   []float64        `json:"throughputs"`
+	Errors        []string         `json:"errors"`
+	Timestamp     time.Time        `json:"timestamp"`
+	Duration      time.Duration    `json:"duration"`
+	TimeSeries    []TimeSeriesData `json:"time_series"`
+	FileSizeStats map[string]struct {
+		Count   int     `json:"count"`
+		TotalKB float64 `json:"total_kb"`
+		AvgTime float64 `json:"avg_time_ms"`
+	} `json:"file_size_stats"`
+	mu sync.Mutex
 }
 
 type TestSummary struct {
 	TotalRequests      int     `json:"total_requests"`
 	SuccessfulRequests int     `json:"successful_requests"`
 	FailedRequests     int     `json:"failed_requests"`
+	TotalDataKB        float64 `json:"total_data_kb"`
+	AvgThroughputMBps  float64 `json:"avg_throughput_mbps"`
+	PeakThroughputMBps float64 `json:"peak_throughput_mbps"`
 	AvgLatencyMs       float64 `json:"avg_latency_ms"`
 	MinLatencyMs       float64 `json:"min_latency_ms"`
 	MaxLatencyMs       float64 `json:"max_latency_ms"`
 	Percentiles        struct {
+		P25 float64 `json:"p25"`
 		P50 float64 `json:"p50"`
+		P75 float64 `json:"p75"`
 		P90 float64 `json:"p90"`
 		P95 float64 `json:"p95"`
 		P99 float64 `json:"p99"`
 	} `json:"percentiles"`
-	ThroughputRps float64 `json:"throughput_rps"`
+	ErrorDistribution map[string]int `json:"error_distribution"`
+	TimeWindows       []struct {
+		Start             time.Time `json:"start"`
+		End               time.Time `json:"end"`
+		Throughput        float64   `json:"throughput_rps"`
+		DataTransferredKB float64   `json:"data_transferred_kb"`
+		AvgLatency        float64   `json:"avg_latency_ms"`
+	} `json:"time_windows"`
 }
 
 type transferResult struct {
@@ -91,37 +108,117 @@ func NewTestReport(config TestConfig) *TestReport {
 }
 
 func (r *TestReport) Finalize() {
-	r.Duration = time.Since(r.Timestamp)
-	r.Summary.TotalRequests = r.Summary.SuccessfulRequests + r.Summary.FailedRequests
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	// Handle all-failed case
-	if r.Summary.SuccessfulRequests == 0 && r.Summary.FailedRequests > 0 {
-		r.Summary.MinLatencyMs = 0
-		r.Summary.MaxLatencyMs = 0
-		r.Summary.AvgLatencyMs = 0
+	r.Duration = time.Since(r.Timestamp)
+	r.Summary.TotalRequests = len(r.Latencies) + len(r.Errors)
+	r.Summary.SuccessfulRequests = len(r.Latencies)
+	r.Summary.FailedRequests = len(r.Errors)
+
+	// Error distribution analysis
+	errorCounts := make(map[string]int)
+	for _, err := range r.Errors {
+		errorCounts[err]++
+	}
+	r.Summary.ErrorDistribution = errorCounts
+
+	// File size statistics
+	r.FileSizeStats = make(map[string]struct {
+		Count   int     `json:"count"`
+		TotalKB float64 `json:"total_kb"`
+		AvgTime float64 `json:"avg_time_ms"`
+	})
+
+	// Calculate data transferred
+	var totalDataKB float64
+	for _, policy := range r.Config.FilesizePolicies {
+		sizeKB := float64(policy.Size)
+		switch policy.Unit {
+		case "MB":
+			sizeKB *= 1024
+		case "GB":
+			sizeKB *= 1024 * 1024
+		case "B":
+			sizeKB /= 1024
+		}
+		totalDataKB += sizeKB * float64(policy.Count)
+	}
+	r.Summary.TotalDataKB = totalDataKB
+
+	// Throughput calculations
+	if r.Duration.Seconds() > 0 {
+		r.Summary.AvgThroughputMBps = (totalDataKB / 1024) / r.Duration.Seconds()
 	}
 
+	// Latency calculations
 	if len(r.Latencies) > 0 {
 		sort.Float64s(r.Latencies)
+		var totalLatency float64
 
-		var total float64
+		// Calculate percentiles
+		percentiles := map[float64]*float64{
+			0.25: &r.Summary.Percentiles.P25,
+			0.50: &r.Summary.Percentiles.P50,
+			0.75: &r.Summary.Percentiles.P75,
+			0.90: &r.Summary.Percentiles.P90,
+			0.95: &r.Summary.Percentiles.P95,
+			0.99: &r.Summary.Percentiles.P99,
+		}
+
+		for p, target := range percentiles {
+			*target = percentile(r.Latencies, p)
+		}
+
 		r.Summary.MinLatencyMs = r.Latencies[0]
 		r.Summary.MaxLatencyMs = r.Latencies[len(r.Latencies)-1]
 
 		for _, l := range r.Latencies {
-			total += l
+			totalLatency += l
 		}
-		r.Summary.AvgLatencyMs = total / float64(len(r.Latencies))
-
-		// Percentile calculations
-		r.Summary.Percentiles.P50 = percentile(r.Latencies, 0.5)
-		r.Summary.Percentiles.P90 = percentile(r.Latencies, 0.9)
-		r.Summary.Percentiles.P95 = percentile(r.Latencies, 0.95)
-		r.Summary.Percentiles.P99 = percentile(r.Latencies, 0.99)
+		r.Summary.AvgLatencyMs = totalLatency / float64(len(r.Latencies))
 	}
 
-	if r.Duration.Seconds() > 0 && r.Summary.SuccessfulRequests > 0 {
-		r.Summary.ThroughputRps = float64(r.Summary.SuccessfulRequests) / r.Duration.Seconds()
+	// Calculate time windows (10 second intervals)
+	windowSize := 10 * time.Second
+	var currentWindow struct {
+		Start        time.Time
+		End          time.Time
+		Count        int
+		TotalKB      float64
+		TotalLatency float64
+	}
+
+	for _, ts := range r.TimeSeries {
+		if ts.Timestamp.Sub(currentWindow.Start) > windowSize {
+			if !currentWindow.Start.IsZero() {
+				r.Summary.TimeWindows = append(r.Summary.TimeWindows, struct {
+					Start             time.Time `json:"start"`
+					End               time.Time `json:"end"`
+					Throughput        float64   `json:"throughput_rps"`
+					DataTransferredKB float64   `json:"data_transferred_kb"`
+					AvgLatency        float64   `json:"avg_latency_ms"`
+				}{
+					Start:             currentWindow.Start,
+					End:               currentWindow.End,
+					Throughput:        float64(currentWindow.Count) / windowSize.Seconds(),
+					DataTransferredKB: currentWindow.TotalKB,
+					AvgLatency:        currentWindow.TotalLatency / float64(currentWindow.Count),
+				})
+			}
+			currentWindow = struct {
+				Start        time.Time
+				End          time.Time
+				Count        int
+				TotalKB      float64
+				TotalLatency float64
+			}{Start: ts.Timestamp}
+		}
+
+		currentWindow.End = ts.Timestamp
+		currentWindow.Count += ts.Requests
+		currentWindow.TotalKB += ts.DataTransferredKB
+		currentWindow.TotalLatency += ts.AvgLatencyMs * float64(ts.Requests)
 	}
 }
 
@@ -207,11 +304,17 @@ func RunMFTTest(config *TestConfig, onError ErrorHandler) (*TestReport, error) {
 	// Process results...
 	for result := range results {
 		if result.success {
+			report.mu.Lock()
 			report.Latencies = append(report.Latencies, result.duration.Seconds()*1000)
+			report.mu.Unlock()
+			dataKB := float64(config.FilesizePolicies[0].Size)
+			report.AddTimeSeriesSample(dataKB)
 			report.Summary.SuccessfulRequests++
 		} else {
 			if result.error != "" {
+				report.mu.Lock()
 				report.Errors = append(report.Errors, result.error)
+				report.mu.Unlock()
 			}
 			report.Summary.FailedRequests++
 		}
@@ -229,7 +332,7 @@ func RunMFTTest(config *TestConfig, onError ErrorHandler) (*TestReport, error) {
 	fmt.Printf("\n%s%s%-20s: %s%d%s", colorReset, logPrefix, "Total Transfers", colorCyan, report.Summary.TotalRequests, colorReset)
 	fmt.Printf("\n%s%s%-20s: %s%d (%.1f%%)%s", colorReset, logPrefix, "Successful", colorGreen, report.Summary.SuccessfulRequests, successPercent, colorReset)
 	fmt.Printf("\n%s%s%-20s: %s%d (%.1f%%)%s", colorReset, logPrefix, "Failed", colorRed, report.Summary.FailedRequests, failPercent, colorReset)
-	fmt.Printf("\n%s%s%-20s: %s%.2f req/s%s", colorReset, logPrefix, "Throughput", colorCyan, report.Summary.ThroughputRps, colorReset)
+	fmt.Printf("\n%s%s%-20s: %s%.2f req/s%s", colorReset, logPrefix, "Throughput", colorCyan, report.Summary.AvgThroughputMBps, colorReset)
 	fmt.Printf("\n%s%s%-20s: %s%.2fms%s", colorReset, logPrefix, "Avg Latency", colorCyan, report.Summary.AvgLatencyMs, colorReset)
 
 	defer os.RemoveAll(fmt.Sprintf("testfiles/%s", config.TestID)) // Cleanup files
@@ -372,21 +475,22 @@ func executeTransfer(config TestConfig, transferID int, onError ErrorHandler) tr
 	case <-done:
 		duration := time.Since(start)
 		if transferErr != nil {
+			// Log error but don't count as timeout
 			fmt.Printf("%s%sWorker %d - Failed after %s | %s | Error: %s%s\n",
-				colorRed, logPrefix, workerID, duration.Round(time.Millisecond), selectedFile, transferErr.Error(), colorReset)
-			onError(fmt.Sprintf("Transfer failed: %v", transferErr))
+				colorYellow, logPrefix, workerID, duration.Round(time.Millisecond),
+				selectedFile, transferErr.Error(), colorReset)
 			return transferResult{success: false, duration: duration, error: transferErr.Error()}
 		}
 		fmt.Printf("%s%sWorker %d - Completed in %s | %s%s\n",
 			colorGreen, logPrefix, workerID, duration.Round(time.Millisecond), selectedFile, colorReset)
 		return transferResult{success: true, duration: duration}
-	case <-time.After(time.Duration(config.Timeout) * time.Second):
-		log.Printf("Transfer %s timed out after %ds", selectedFile, config.Timeout)
-		onError(fmt.Sprintf("Transfer %s timed out after %ds", selectedFile, config.Timeout))
+	case <-time.After(time.Duration(config.Timeout) * time.Second * 2):
+		// Give some buffer beyond the protocol timeout
+		log.Printf("Transfer %s exceeded maximum allowed time", selectedFile)
 		return transferResult{
 			success:  false,
 			duration: time.Duration(config.Timeout) * time.Second,
-			error:    fmt.Sprintf("timeout_%ds: %s", config.Timeout, selectedFile),
+			error:    "operation_timeout",
 		}
 	}
 }
@@ -432,37 +536,42 @@ func (r *TestReport) WriteToFile(path string) error {
 }
 
 type TimeSeriesData struct {
-	Timestamp     time.Time `json:"timestamp"`
-	Requests      int       `json:"requests"`
-	Errors        int       `json:"errors"`
-	AvgLatencyMs  float64   `json:"avg_latency_ms"`
-	ThroughputRPS float64   `json:"throughput_rps"`
+	Timestamp         time.Time `json:"timestamp"`
+	Requests          int       `json:"requests"`
+	Errors            int       `json:"errors"`
+	DataTransferredKB float64   `json:"data_transferred_kb"`
+	AvgLatencyMs      float64   `json:"avg_latency_ms"`
+	MinLatencyMs      float64   `json:"min_latency_ms"`
+	MaxLatencyMs      float64   `json:"max_latency_ms"`
+	ThroughputRPS     float64   `json:"throughput_rps"`
+	ThroughputMBps    float64   `json:"throughput_mbps"`
 }
 
-func (r *TestReport) AddTimeSeriesSample() {
+func (r *TestReport) AddTimeSeriesSample(dataKB float64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Calculate current window stats
-	success := len(r.Latencies)
-	failed := len(r.Errors)
-	total := success + failed
+	now := time.Now()
+	var avgLatency, minLatency, maxLatency float64
 
-	var avgLatency float64
-	if success > 0 {
-		var sum float64
-		for _, l := range r.Latencies {
-			sum += l
-		}
-		avgLatency = sum / float64(success)
+	if len(r.Latencies) > 0 {
+		avgLatency = r.Summary.AvgLatencyMs
+		minLatency = r.Summary.MinLatencyMs
+		maxLatency = r.Summary.MaxLatencyMs
 	}
 
+	totalDataKB := float64(len(r.Latencies)) * dataKB // Cumulative data
+
 	r.TimeSeries = append(r.TimeSeries, TimeSeriesData{
-		Timestamp:     time.Now(),
-		Requests:      total,
-		Errors:        failed,
-		AvgLatencyMs:  avgLatency,
-		ThroughputRPS: float64(total) / time.Since(r.Timestamp).Seconds(),
+		Timestamp:         now,
+		Requests:          len(r.Latencies) + len(r.Errors),
+		Errors:            len(r.Errors),
+		DataTransferredKB: totalDataKB,
+		AvgLatencyMs:      avgLatency,
+		MinLatencyMs:      minLatency,
+		MaxLatencyMs:      maxLatency,
+		ThroughputRPS:     float64(len(r.Latencies)+len(r.Errors)) / time.Since(r.Timestamp).Seconds(),
+		ThroughputMBps:    totalDataKB / 1024 / time.Since(r.Timestamp).Seconds(),
 	})
 }
 

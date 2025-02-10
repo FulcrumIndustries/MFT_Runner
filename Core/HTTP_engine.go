@@ -161,7 +161,6 @@ func HTTPDownload(filePath string, config *TestConfig) error {
 	url := fmt.Sprintf("http://%s:%d%s", config.Host, config.Port, config.RemotePath)
 	client := &http.Client{Timeout: 30 * time.Second}
 
-
 	resp, err := client.Get(url)
 	if err != nil {
 		return err

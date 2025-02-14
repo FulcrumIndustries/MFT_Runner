@@ -2,46 +2,13 @@ package Core
 
 import (
 	"bytes"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 )
-
-func multipartCall(id string, maxtimeout int, remoteURL string, username string, password string, reqtype string, filename string) {
-
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	var client http.Client = http.Client{Timeout: time.Duration(maxtimeout) * time.Second, Transport: tr}
-
-	//prepare the reader instances to encode
-	values := map[string]io.Reader{
-		"file":  mustOpen(filename), // lets assume its this file
-		"other": strings.NewReader("MFT_Runner"),
-	}
-	if reqtype == "POST" {
-		fmt.Println("Sending " + filename + "...")
-		err := Upload(id, client, username, password, remoteURL, values)
-		if err != nil {
-			fmt.Println(err)
-		}
-	} else if reqtype == "GET" {
-		shortfilename := filepath.Base(filename)
-		targetfile := filename + id
-		fmt.Println("Downloading " + remoteURL + "%2F" + shortfilename + "...")
-		err := Download(id, client, targetfile, shortfilename, username, password, remoteURL, values)
-		if err != nil {
-			// panic(err)
-			fmt.Println(err)
-		}
-	}
-}
 
 func Upload(id string, client http.Client, username string, password string, url string, values map[string]io.Reader) (err error) {
 	// Prepare a form that you will submit to that URL.
@@ -117,14 +84,6 @@ func Download(id string, client http.Client, targetfile string, downloadfilename
 	// fmt.Printf("body: %v\n", res.Body)
 	defer res.Body.Close()
 	return nil
-}
-
-func mustOpen(f string) *os.File {
-	r, err := os.Open(f)
-	if err != nil {
-		panic(err)
-	}
-	return r
 }
 
 type Post struct {

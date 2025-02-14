@@ -1,7 +1,6 @@
 package Core
 
 import (
-	"os"
 	"sync"
 	"time"
 )
@@ -10,7 +9,6 @@ import (
 type MFTHandler struct {
 	report   *TestReport
 	mu       sync.Mutex
-	logFile  *os.File
 	interval time.Duration
 }
 

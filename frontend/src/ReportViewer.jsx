@@ -201,6 +201,17 @@ const SummaryCards = ({ report, mode }) => {
             <Typography variant="body2" color="text.secondary">
               {summary.total_data_kb.toLocaleString()} KB
             </Typography>
+            <Typography variant="h6">File Sizes</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {report.config.filesizepolicies.map((policy, index) => (
+                <span key={index}>
+                  {formatSize(policy.size)} ({policy.percent}%)
+                  {index < report.config.filesizepolicies.length - 1
+                    ? ", "
+                    : ""}
+                </span>
+              ))}
+            </Typography>
           </Box>
         </Card>
       </Grid>
@@ -871,7 +882,14 @@ const ReportViewer = () => {
                     <TableRow>
                       <TableCell>File Size</TableCell>
                       <TableCell>
-                        {formatSize(report.config.filesizepolicies[0].size)}
+                        {report.config.filesizepolicies.map((policy, index) => (
+                          <span key={index}>
+                            {formatSize(policy.size)} ({policy.percent}%)
+                            {index < report.config.filesizepolicies.length - 1
+                              ? ", "
+                              : ""}
+                          </span>
+                        ))}
                       </TableCell>
                     </TableRow>
                   </TableBody>

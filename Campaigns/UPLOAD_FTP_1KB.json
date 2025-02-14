@@ -1,7 +1,7 @@
 {
   "FilesizePolicies": [{ "Size": 1, "Unit": "K", "Percent": 100 }],
   "Protocol": "FTP",
-  "Type": "Upload",
+  "Type": "UPLOAD",
   "Name": "UPLOAD_FTP_1KB",
   "Timeout": 5,
   "Host": "localhost",

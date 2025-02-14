@@ -1,0 +1,16 @@
+{
+  "name": "Download 1KB Files",
+  "protocol": "sftp",
+  "type": "DOWNLOAD",
+  "num_clients": 1,
+  "num_requests": 1,
+  "source_pattern": "1K_1",
+  "remote_path": "/A/",
+  "local_path": "./downloads/",
+  "host": "localhost",
+  "port": 2222,
+  "username": "ftp",
+  "password": "ftp",
+  "timeout": 300,
+  "filesizepolicies": []
+}

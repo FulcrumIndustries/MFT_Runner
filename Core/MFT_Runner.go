@@ -29,7 +29,7 @@ type TestConfig struct {
 	NumRequestsFirstClients int              `json:"num_requests_first_clients,omitempty"`
 	RampUp                  string           `json:"rampup"`
 	Type                    string           `json:"type"`
-	Protocol                string           `json:"protocol"`
+	Protocol                string           `json:"protocol,omitempty"`
 	Host                    string           `json:"host"`
 	Port                    int              `json:"port"`
 	FilesizePolicies        []FilesizePolicy `json:"filesizepolicies"`
@@ -40,6 +40,7 @@ type TestConfig struct {
 	Timeout                 int              `json:"timeout"`
 	Username                string           `json:"username"`
 	Password                string           `json:"password"`
+	SourcePattern           string           `json:"source_pattern"` // For downloads: pattern to match source files
 }
 
 // ErrorHandler is a function type for handling test errors
@@ -341,20 +342,6 @@ func RunMFTTest(config *TestConfig, onError ErrorHandler) (*TestReport, error) {
 	return report, nil
 }
 
-func loadTestConfig(path string) (*TestConfig, error) {
-	log.Printf("Loading campaign file: %s", path)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("error reading config file: %w", err)
-	}
-
-	var config TestConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("error parsing config JSON: %w", err)
-	}
-	return &config, nil
-}
-
 // Helper function to select file size based on distribution
 func selectFileSize(policies []FilesizePolicy) *FilesizePolicy {
 	// Generate random number between 0 and 100
@@ -389,50 +376,56 @@ func formatSize(policy *FilesizePolicy) string {
 
 func executeTransfer(config TestConfig, transferID int, onError ErrorHandler) transferResult {
 	workerID := config.WorkerID
-	policy := selectFileSize(config.FilesizePolicies)
-
-	fmt.Printf("%s%sWorker %d - Starting transfer %d (%s)%s\n",
-		colorReset, logPrefix, workerID, transferID, formatSize(policy), colorReset)
-
-	start := time.Now()
-
-	if policy.Count < 1 {
-		log.Printf("Worker %d Transfer %d: No files available for policy", workerID, transferID)
-		return transferResult{success: false, duration: 0, error: ""}
-	}
-
-	// Get random file from manifest
-	fileList := getFileList(config.TestID)
-	if len(fileList) == 0 {
-		log.Printf("Worker %d Transfer %d: No files available", workerID, transferID)
-		return transferResult{success: false, duration: 0, error: ""}
-	}
-	selectedFile := fileList[rand.Intn(len(fileList))]
-
-	// Get existing test file
-	filePath := filepath.Join("Work", "testfiles", config.TestID, selectedFile)
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		log.Printf("Worker %d Transfer %d: Test file missing - %v", workerID, transferID, err)
-		onError(fmt.Sprintf("Test file missing: %s", filePath))
-		return transferResult{
-			success:  false,
-			duration: time.Since(start),
-			error:    fmt.Sprintf("file_not_found: %s", filePath),
+	var policy *FilesizePolicy
+	if config.Type == "UPLOAD" {
+		policy = selectFileSize(config.FilesizePolicies)
+		if policy == nil || policy.Count < 1 {
+			return transferResult{success: false, duration: 0, error: "no files available for policy"}
 		}
 	}
 
-	var remoteName string
-	if config.Type == "Upload" {
-		// Generate unique name only for uploads
+	fmt.Printf("%s%sWorker %d - Starting transfer %d (%s)%s\n",
+		colorReset, logPrefix, workerID, transferID,
+		func() string {
+			if config.Type == "UPLOAD" {
+				return formatSize(policy)
+			}
+			return config.SourcePattern
+		}(),
+		colorReset)
+
+	start := time.Now()
+
+	// Create download directory if needed
+	if config.Type == "DOWNLOAD" {
+		os.MkdirAll(config.LocalPath, 0755)
+	}
+
+	var selectedFile, remoteName string
+	var absPath string
+	if config.Type == "UPLOAD" {
+		// Get random file from manifest for uploads
+		fileList := getFileList(config.TestID)
+		if len(fileList) == 0 {
+			return transferResult{success: false, duration: 0, error: "no files available"}
+		}
+		selectedFile = fileList[rand.Intn(len(fileList))]
 		remoteName = fmt.Sprintf("%s_%d_%d_%d.dat",
 			strings.TrimSuffix(selectedFile, filepath.Ext(selectedFile)),
 			time.Now().UnixNano(),
 			workerID,
 			transferID,
 		)
+		// Get existing test file path
+		absPath, _ = filepath.Abs(filepath.Join("Work", "testfiles", config.TestID, selectedFile))
+		if _, err := os.Stat(absPath); os.IsNotExist(err) {
+			return transferResult{success: false, duration: 0, error: fmt.Sprintf("file_not_found: %s", absPath)}
+		}
 	} else {
-		// Use original filename for downloads
-		remoteName = selectedFile
+		// For downloads, use the source pattern
+		remoteName = config.SourcePattern
+		absPath = filepath.Join(config.LocalPath, fmt.Sprintf("download_%d_%d.dat", workerID, transferID))
+		selectedFile = filepath.Base(absPath)
 	}
 
 	// Create a channel to signal completion
@@ -443,23 +436,29 @@ func executeTransfer(config TestConfig, transferID int, onError ErrorHandler) tr
 	go func() {
 		fmt.Printf("%s%sWorker %d - Transfer %d: %s %s to %s%s\n",
 			colorReset, logPrefix, workerID, transferID, config.Type,
-			formatSize(policy), config.RemotePath, colorReset)
+			func() string {
+				if config.Type == "UPLOAD" {
+					return formatSize(policy)
+				}
+				return config.SourcePattern
+			}(), config.RemotePath, colorReset)
+
 		switch config.Protocol {
-		case "FTP":
-			if config.Type == "Upload" {
-				transferErr = FTPUpload(filePath, remoteName, &config, workerID, transferID)
+		case "FTP", "ftp":
+			if config.Type == "UPLOAD" {
+				transferErr = FTPUpload(absPath, remoteName, &config, workerID, transferID)
 			} else {
-				transferErr = FTPDownload(filePath, remoteName, &config, workerID)
+				transferErr = FTPDownload(absPath, remoteName, &config, workerID)
 			}
-		case "SFTP":
-			if config.Type == "Upload" {
-				transferErr = SFTPUpload(filePath, remoteName, &config)
+		case "SFTP", "sftp":
+			if config.Type == "UPLOAD" {
+				transferErr = SFTPUpload(absPath, remoteName, &config)
 			} else {
-				transferErr = SFTPDownload(remoteName, filePath, &config)
+				transferErr = SFTPDownload(remoteName, absPath, &config)
 			}
-		case "HTTP":
-			if config.Type == "Upload" {
-				transferErr = HTTPUpload(filePath, &config)
+		case "HTTP", "http":
+			if config.Type == "UPLOAD" {
+				transferErr = HTTPUpload(absPath, &config)
 			} else {
 				transferErr = HTTPDownload(config.RemotePath, &config)
 			}

@@ -1,0 +1,19 @@
+{
+  "FilesizePolicies": [
+    { "Size": 1, "Unit": "K", "Percent": 70 },
+    { "Size": 10, "Unit": "K", "Percent": 20 },
+    { "Size": 100, "Unit": "K", "Percent": 10 }
+  ],
+  "Protocol": "SFTP",
+  "Type": "UPLOAD",
+  "Name": "UPLOAD_SFTP_MIXKB",
+  "Timeout": 5,
+  "Host": "localhost",
+  "Port": 2222,
+  "Username": "ftp",
+  "Password": "ftp",
+  "LocalPath": "path/to/local/file",
+  "RemotePath": "/A/",
+  "RampUp": "1s",
+  "HoldFor": "10s"
+}

@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/jlaffaye/ftp"
@@ -16,7 +15,6 @@ import (
 type FTPConnPool struct {
 	pool   chan *ftp.ServerConn
 	config *TestConfig
-	mu     sync.Mutex
 }
 
 func NewFTPConnPool(config *TestConfig, max int) *FTPConnPool {

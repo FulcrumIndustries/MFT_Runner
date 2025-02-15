@@ -1,0 +1,15 @@
+{
+  "FilesizePolicies": [{ "Size": 1, "Unit": "K", "Percent": 100 }],
+  "Protocol": "HTTP",
+  "Type": "UPLOAD",
+  "Name": "Upload 1KB Files",
+  "Timeout": 300,
+  "Host": "localhost",
+  "Port": 8080,
+  "Username": "ftp",
+  "Password": "ftp",
+  "LocalPath": "./Work/testfiles",
+  "RemotePath": "/A/",
+  "RampUp": "1s",
+  "HoldFor": "10s"
+}

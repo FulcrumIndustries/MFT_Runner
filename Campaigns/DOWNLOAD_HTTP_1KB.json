@@ -1,0 +1,16 @@
+{
+  "FilesizePolicies": [{ "Size": 1, "Unit": "K", "Percent": 100 }],
+  "Protocol": "HTTP",
+  "Type": "DOWNLOAD",
+  "Name": "DOWNLOAD_HTTP_1KB",
+  "UploadTestID": "test_1739640012122956600",
+  "Timeout": 5,
+  "Host": "localhost",
+  "Port": 8080,
+  "Username": "http",
+  "Password": "http",
+  "LocalPath": "downloads",
+  "RemotePath": "/A/",
+  "RampUp": "1s",
+  "HoldFor": "10s"
+}

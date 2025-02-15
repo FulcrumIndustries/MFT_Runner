@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -93,49 +94,81 @@ type Post struct {
 	Body   string `json:"body"`
 }
 
-func HTTPUpload(filePath string, config *TestConfig) error {
+func HTTPUpload(filePath string, remoteName string, config *TestConfig) error {
 	url := fmt.Sprintf("http://%s:%d%s", config.Host, config.Port, config.RemotePath)
 	file, err := os.Open(filePath)
 	if err != nil {
-		return err
-
+		return fmt.Errorf("file open error: %w", err)
 	}
 	defer file.Close()
 
-	client := &http.Client{Timeout: 30 * time.Second}
-
-	resp, err := client.Post(url, "application/octet-stream", file)
+	// Get file size for Content-Length header
+	fileInfo, err := file.Stat()
 	if err != nil {
-		return err
+		return fmt.Errorf("file stat error: %w", err)
+	}
+	contentLength := fileInfo.Size()
+	// Reset file reader after getting size
+	file.Seek(0, 0)
+
+	client := &http.Client{
+		Timeout: time.Duration(config.Timeout) * time.Second,
+	}
+
+	req, err := http.NewRequest("POST", url, file)
+	if err != nil {
+		return fmt.Errorf("request creation failed: %w", err)
+	}
+	req.SetBasicAuth(config.Username, config.Password)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", remoteName))
+	req.ContentLength = contentLength // Explicitly set content length
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("HTTP error: %s", resp.Status)
+		return fmt.Errorf("HTTP error %d: %s", resp.StatusCode, resp.Status)
 	}
+
 	return nil
 }
 
-func HTTPDownload(filePath string, config *TestConfig) error {
-	url := fmt.Sprintf("http://%s:%d%s", config.Host, config.Port, config.RemotePath)
-	client := &http.Client{Timeout: 30 * time.Second}
+func HTTPDownload(remoteName, localPath string, config *TestConfig) error {
+	url := fmt.Sprintf("http://%s:%d%s%s",
+		config.Host,
+		config.Port,
+		config.RemotePath,
+		remoteName)
+
+	client := &http.Client{
+		Timeout: time.Duration(config.Timeout) * time.Second,
+	}
 
 	resp, err := client.Get(url)
 	if err != nil {
-		return err
+		return fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("HTTP error: %s", resp.Status)
+		return fmt.Errorf("HTTP error %d: %s", resp.StatusCode, resp.Status)
 	}
 
-	file, err := os.CreateTemp("", "http-download-*.tmp")
+	outFile := filepath.Join(config.LocalPath, filepath.Base(remoteName))
+	file, err := os.Create(outFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("file creation failed: %w", err)
 	}
-	defer os.Remove(file.Name())
+	defer file.Close()
 
 	_, err = io.Copy(file, resp.Body)
-	return err
+	if err != nil {
+		return fmt.Errorf("download failed: %w", err)
+	}
+
+	return nil
 }

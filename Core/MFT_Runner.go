@@ -479,12 +479,12 @@ func executeTransfer(config TestConfig, transferID int, onError ErrorHandler) tr
 		listPath := filepath.Join("Work", "testfiles", config.TestID, "uploaded.list")
 		os.MkdirAll(filepath.Dir(listPath), 0755) // Ensure directory exists
 		f, err := os.OpenFile(listPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
+		if err == nil {
+			defer f.Close()
+			fmt.Fprintf(f, "%s\n", remoteName)
+		} else {
 			log.Printf("Error writing to uploaded.list: %v", err)
-			return transferResult{success: false, error: "manifest write error"}
 		}
-		defer f.Close()
-		fmt.Fprintf(f, "%s\n", remoteName)
 	} else {
 		// For downloads, use the uploaded files list
 		listPath := filepath.Join("Work", "testfiles", config.UploadTestID, "uploaded.list")
@@ -534,9 +534,9 @@ func executeTransfer(config TestConfig, transferID int, onError ErrorHandler) tr
 			}
 		case "HTTP", "http":
 			if config.Type == "UPLOAD" {
-				transferErr = HTTPUpload(absPath, &config)
+				transferErr = HTTPUpload(absPath, remoteName, &config)
 			} else {
-				transferErr = HTTPDownload(config.RemotePath, &config)
+				transferErr = HTTPDownload(remoteName, absPath, &config)
 			}
 		default:
 			log.Printf("Unsupported protocol: %s", config.Protocol)

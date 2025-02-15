@@ -17,12 +17,15 @@ from paramiko import Transport, ServerInterface, SFTPServerInterface, SFTPServer
 import socket
 import errno
 import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import time
 
 # Configuration
 FTP_USER = "ftp"
 FTP_PASS = "ftp"
 FTP_PORT = 2121
 SFTP_PORT = 2222
+HTTP_PORT = 8080
 
 # Get script directory and create receive folder
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -312,9 +315,59 @@ def handle_sftp_connection(client, addr, host_key):
         transport.close()
         print(f"Connection from {addr} closed.")
 
+class HTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"MFT Test HTTP Server Ready - POST files to /upload")
+    
+    def do_POST(self):
+        try:
+            # Handle missing Content-Length header
+            if 'Content-Length' not in self.headers:
+                self.send_error(411, "Length Required")
+                return
+                
+            # Handle invalid Content-Length values
+            try:
+                content_length = int(self.headers['Content-Length'])
+            except ValueError:
+                self.send_error(400, "Invalid Content-Length")
+                return
+                
+            file_data = self.rfile.read(content_length)
+            # Get filename from Content-Disposition header or generate timestamped name
+            content_disp = self.headers.get('Content-Disposition', '')
+            if 'filename=' in content_disp:
+                filename = content_disp.split('filename=')[1].strip('"')
+            else:
+                filename = f"http_upload_{int(time.time()*1000)}.dat"
+            full_path = os.path.join(RECEIVE_DIR, filename)
+            
+            with open(full_path, "wb") as f:
+                f.write(file_data)
+            
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain")
+            self.end_headers()
+            self.wfile.write(f"File saved as {full_path}".encode())
+            print(f"🌐 HTTP: Received {len(file_data)} bytes saved as {full_path}")
+            
+        except Exception as e:
+            self.send_error(500, str(e))
+            print(f"HTTP Error: {e}")
+
+def start_http_server():
+    server = ThreadingHTTPServer(('127.0.0.1', HTTP_PORT), HTTPRequestHandler)
+    print(f"🌐 HTTP Server listening on port {HTTP_PORT}")
+    print(f"📂 Saving files to: {RECEIVE_DIR}")
+    server.serve_forever()
+
 if __name__ == "__main__":
-    print("🚀 Starting FTP/SFTP test servers...")
+    print("🚀 Starting FTP/SFTP/HTTP test servers...")
     threading.Thread(target=start_ftp_server, daemon=True).start()
     threading.Thread(target=start_sftp_server, daemon=True).start()
+    threading.Thread(target=start_http_server, daemon=True).start()
     while True:
         pass

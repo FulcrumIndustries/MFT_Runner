@@ -33,14 +33,20 @@ A high-performance testing framework for evaluating file transfer protocols unde
 # Clone & Build
 git clone https://github.com/FulcrumIndustries/MFT_Runner.git
 
-# Build the load testing tool
+# [Optional] Build the load testing tool (requires Go)
 cd MFT_Runner
 go build -o mft-runner.exe cmd/runner/main.go
 
-# Start the web interface
+# Start the web interface (requires Node.js)
 cd frontend
 npm install
+
+# Start the web interface in DEV mode
 npm run dev
+
+# Start the web interface in PROD mode
+npm run build
+npm run start
 ```
 
 ## 🧪 Basic Workflow
@@ -70,7 +76,9 @@ npm run dev
 1. Launch web interface from `frontend` directory:
 
 ```bash
-npm start
+# Start the web interface in PROD mode
+npm run build
+npm run start
 ```
 
 2. Open `http://localhost:3000`
@@ -114,7 +122,7 @@ npm start
 - Latency percentile charts
 - Throughput over time visualizations
 
-## 📡 CLI Commands
+## 📡 Other CLI Commands
 
 ```bash
 # List available campaigns
@@ -181,7 +189,7 @@ json
 
 1. **Create Campaign** → Define protocol parameters and file distribution
 2. **Configure Test** → Set clients, requests, and duration
-3. **Execute Test** → Monitor real-time transfers/second and errors
+3. **Execute Test** → Monitor throughput and errors
 4. **Analyze Results** → View throughput graphs and failure diagnostics
 5. **Compare Runs** → Track performance regressions/improvements
 
@@ -197,7 +205,7 @@ Access the web interface at DEV `http://localhost:5173`, PROD `http://localhost:
    - Requests per client
    - Protocol-specific settings
 3. ▶️ Start test execution
-4. 📊 Monitor real-time statistics
+4. 📊 Monitor statistics
 5. 📄 Review detailed reports
 
 ## 🛣 Roadmap

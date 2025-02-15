@@ -2,7 +2,7 @@
 
 ![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)
 ![License](https://img.shields.io/badge/License-MIT-blue)
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/yourusername/mft-runner/build.yml)
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/FulcrumIndustries/MFT_Runner/build.yml)
 
 A high-performance testing framework for evaluating file transfer protocols under various network conditions and load scenarios.
 
@@ -158,8 +158,8 @@ graph TD
 
 bash
 Clone repository
-git clone https://github.com/yourusername/mft-runner.git
-cd mft-runner
+git clone https://github.com/FulcrumIndustries/MFT_Runner.git
+cd MFT_Runner
 Build backend
 make build-backend
 Setup frontend

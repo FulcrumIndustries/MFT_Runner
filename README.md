@@ -8,17 +8,145 @@ A high-performance testing framework for evaluating file transfer protocols unde
 
 ![Dashboard Preview](docs/dashboard-preview.png)
 
-## 🌟 Features
+## 🌟 Key Features
 
-- **Multi-Protocol Support**: Test FTP, SFTP, and HTTP transfers
-- **Real-Time Analytics**: Live progress tracking and metrics dashboard
-- **Campaign Management**: Save and reuse test configurations
+- **Multi-Protocol Testing**: FTP, SFTP, HTTP/HTTPS support
+- **Visual Analytics**: Illustrated dashboard after test execution
+- **Campaign System**: Save and reuse test configurations
 - **Smart Load Generation**:
-  - Concurrent client simulations
   - Custom file size distributions
-  - Automatic cleanup
-- **Historical Analysis**: Compare test results over time
-- **CI/CD Ready**: Integration-friendly API endpoints
+  - Concurrent client simulations
+  - Automated cleanup
+- **Historical Comparison**: Track performance changes over time
+
+## 🛠 Getting Started
+
+### Prerequisites
+
+- Go 1.21+ [only for building the .exe if needed]
+- Node.js 18+ (for web interface) [frontend directory]
+- Test server running (FTP/SFTP/HTTP) [one is provided in the repo: testserver.py]
+
+```bash
+# Clone & Build
+git clone https://github.com/yourusername/mft-runner.git
+cd mft-runner
+make build-backend
+make install-frontend
+```
+
+## 🧪 Basic Workflow
+
+### 1. Run Upload Test
+
+```bash
+./mft-runner Campaigns/UPLOAD_FTP_1KB.json 10 100
+```
+
+- `10` concurrent clients
+- `100` total files
+- Outputs `UploadTestID` for download tests
+
+### 2. Run Download Test
+
+- Set the `UploadTestID` in the download campaign file
+
+```bash
+./mft-runner Campaigns/DOWNLOAD_FTP_1KB.json 10 100
+```
+
+- Downloads same files uploaded in first test
+
+### 3. View Results
+
+1. Launch web interface from `frontend` directory:
+
+```bash
+npm start
+```
+
+2. Open `http://localhost:3000`
+3. Upload the generated reports in the `TestReports` directory in the UI
+
+## 📂 Campaign Management
+
+### Example Upload Campaign
+
+```json:Campaigns/UPLOAD_SFTP_1KB.json
+{
+  "FilesizePolicies": [{ "Size": 1, "Unit": "K", "Percent": 100 }],
+  "Protocol": "SFTP",
+  "Type": "UPLOAD",
+  "Host": "localhost",
+  "Port": 2222,
+  "Username": "user",
+  "Password": "pass",
+  "RemotePath": "/uploads/"
+}
+```
+
+### Example Download Campaign
+
+```json:Campaigns/DOWNLOAD_SFTP_1KB.json
+{
+  "Protocol": "SFTP",
+  "Type": "DOWNLOAD",
+  "UploadTestID": "test_123456789",  // From upload test
+  "Host": "localhost",
+  "Port": 2222,
+  "RemotePath": "/uploads/"
+}
+```
+
+## 📊 Web Interface Features
+
+- Interactive performance dashboards
+- Comparative analysis of test runs
+- Error distribution breakdowns
+- Latency percentile charts
+- Throughput over time visualizations
+
+## 📡 CLI Commands
+
+```bash
+# List available campaigns
+./mft-runner -lc
+
+# View campaign details
+./mft-runner -vc DOWNLOAD_FTP_1KB
+
+# Run test with custom parameters
+./mft-runner <campaign> <clients> <requests>
+```
+
+## 🔄 Workflow Diagram
+
+```mermaid
+graph TD
+    A[Create Upload Campaign] --> B[Run Upload Test]
+    B --> C{Get UploadTestID}
+    C --> D[Create Download Campaign]
+    D --> E[Run Download Test]
+    E --> F[Analyze Results in UI]
+```
+
+## 🧩 Core Components
+
+| Component         | Description                               |
+| ----------------- | ----------------------------------------- |
+| Test Orchestrator | Manages client workers and test lifecycle |
+| Protocol Handlers | FTP/SFTP/HTTP implementation modules      |
+| Result Analyzer   | Processes metrics and generates reports   |
+| Web Dashboard     | React-based visualization interface       |
+
+## 📈 Key Metrics Tracked
+
+- Throughput (requests/sec)
+- Data transfer rates (MB/s)
+- Latency distributions
+- Error rates
+- Resource utilization
+- Protocol-specific metrics
 
 ## 🛠 Installation
 
@@ -62,7 +190,7 @@ Start server (from project root)
 ./mft-server --port 8080
 In separate terminal (from frontend directory)
 npm start
-Access the web interface at `http://localhost:3000`
+Access the web interface at `http://localhost:5173`
 
 **Typical Workflow**:
 
@@ -84,7 +212,7 @@ Access the web interface at `http://localhost:3000`
 
 ## 🧪 Development
 
-Access the web interface at `http://localhost:3000`
+Access the web interface at `http://localhost:5173`
 
 **Typical Workflow**:
 
@@ -119,12 +247,9 @@ make dev
 
 ## 🛣 Roadmap
 
-- [x] Core protocol implementations
-- [x] Web dashboard
-- [ ] AWS S3 protocol support (Q4 2024)
-- [ ] Network condition simulation (Q1 2025)
-- [ ] Automated PDF reporting (Q2 2025)
-- [ ] OAuth2 authentication (Q3 2025)
+- [x] Core protocol implementations : FTP, SFTP, HTTP
+- [x] Handling upload/download
+- [x] Web dashboard using Test reports
 
 ## 🤝 Contributing
 
@@ -138,10 +263,4 @@ Distributed under MIT License. See `LICENSE` for full text.
 
 ---
 
-_MFT Runner is maintained by [Your Name] and contributors._
-
-## Standalone CLI Usage
-
-```bash
-./mft-runner -config test_config.json
-```
+_MFT Runner is maintained by [Aionyx] and contributors._

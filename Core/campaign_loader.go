@@ -5,27 +5,29 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 type Campaign struct {
-	Name             string           `json:"name"`
-	Protocol         string           `json:"protocol"` // FTP/SFTP/HTTP
-	Type             string           `json:"type"`     // Upload/Download
-	Host             string           `json:"host"`
-	Port             int              `json:"port"`
-	RemotePath       string           `json:"remote_path"`
-	LocalPath        string           `json:"local_path"`
-	Timeout          int              `json:"timeout"` // in seconds
-	RampUp           string           `json:"rampup"`
-	HoldFor          string           `json:"holdfor"`
-	NumClients       int              `json:"num_clients"`
-	NumRequests      int              `json:"num_requests"`
-	FilesizePolicies []FilesizePolicy `json:"filesizepolicies"`
-	Config           TestConfig       `json:"config,omitempty"`
-	SourcePattern    string           `json:"source_pattern,omitempty"`
-	Username         string           `json:"username"`
-	Password         string           `json:"password"`
+	Name             string           `json:"Name"`
+	Protocol         string           `json:"Protocol"` // FTP/SFTP/HTTP
+	Type             string           `json:"Type"`     // Upload/Download
+	Host             string           `json:"Host"`
+	Port             int              `json:"Port"`
+	RemotePath       string           `json:"RemotePath"`
+	LocalPath        string           `json:"LocalPath"`
+	Timeout          int              `json:"Timeout"` // in seconds
+	RampUp           string           `json:"RampUp"`
+	HoldFor          string           `json:"HoldFor"`
+	NumClients       int              `json:"NumClients"`
+	NumRequests      int              `json:"NumRequests"`
+	FilesizePolicies []FilesizePolicy `json:"FilesizePolicies"`
+	Config           TestConfig       `json:"Config,omitempty"`
+	SourcePattern    string           `json:"SourcePattern,omitempty"`
+	Username         string           `json:"Username"`
+	Password         string           `json:"Password"`
+	UploadTestID     string           `json:"UploadTestID"`
 }
 
 func LoadCampaign(path string) (*TestConfig, error) {
@@ -39,7 +41,7 @@ func LoadCampaign(path string) (*TestConfig, error) {
 		return nil, err
 	}
 
-	fmt.Printf("Raw JSON: %s\n", string(data))
+	// fmt.Printf("Raw JSON: %s\n", string(data))
 
 	var campaign Campaign // First unmarshal into Campaign
 	if err := json.Unmarshal(data, &campaign); err != nil {
@@ -61,10 +63,19 @@ func LoadCampaign(path string) (*TestConfig, error) {
 		FilesizePolicies: campaign.FilesizePolicies,
 		Username:         campaign.Username,
 		Password:         campaign.Password,
-		SourcePattern:    campaign.SourcePattern,
+		UploadTestID:     campaign.UploadTestID,
 		TestID:           fmt.Sprintf("test_%d", time.Now().UnixNano()),
 	}
 
-	config.TestID = fmt.Sprintf("test_%d", time.Now().UnixNano())
+	if config.Type == "DOWNLOAD" && config.UploadTestID == "" {
+		return nil, fmt.Errorf("download campaigns require 'upload_test_id' field in campaign file")
+	}
+
+	if config.Type == "UPLOAD" && !strings.HasSuffix(config.RemotePath, "/") {
+		return nil, fmt.Errorf("upload remote path must end with '/'")
+	}
+
+	fmt.Printf("Config: %+v\n", config)
+
 	return &config, nil
 }

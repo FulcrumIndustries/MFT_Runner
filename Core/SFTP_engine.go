@@ -71,7 +71,7 @@ func SSH_Operation(id string, user string, ipaddr string, port uint, password st
 	// out, err := client.Run("bash -c 'printenv'")
 }
 
-func SFTPUpload(filePath, remoteName string, config *TestConfig) error {
+func SFTPUpload(localPath, remoteName string, config *TestConfig) error {
 	sshConfig := &ssh.ClientConfig{
 		User:            config.Username,
 		Auth:            []ssh.AuthMethod{ssh.Password(config.Password)},
@@ -90,27 +90,27 @@ func SFTPUpload(filePath, remoteName string, config *TestConfig) error {
 	}
 	defer client.Close()
 
-	srcFile, err := os.Open(filePath)
+	srcFile, err := os.Open(localPath)
 	if err != nil {
 		return err
 	}
 	defer srcFile.Close()
 
 	remotePath := filepath.ToSlash(filepath.Join(config.RemotePath, remoteName))
-
-	fmt.Println("Uploading " + remotePath)
-
-	// Create parent directories
+	if !strings.HasSuffix(config.RemotePath, "/") {
+		return fmt.Errorf("remote path must end with '/'")
+	}
 	remoteDir := filepath.ToSlash(filepath.Dir(remotePath))
-	fmt.Println("Creating remote directory " + remoteDir)
+
 	if err := client.MkdirAll(remoteDir); err != nil {
-		return fmt.Errorf("create remote directory: %w", err)
+		return fmt.Errorf("failed to create remote directory %s: %w", remoteDir, err)
 	}
 
-	fmt.Println("Creating remote file " + remotePath)
+	fmt.Printf("Uploading %s to %s\n", filepath.Base(localPath), remotePath)
+
 	dstFile, err := client.Create(remotePath)
 	if err != nil {
-		return fmt.Errorf("create remote file: %w", err)
+		return fmt.Errorf("failed to create remote file %s: %w", remotePath, err)
 	}
 
 	fmt.Println("Writing file content")
@@ -128,11 +128,8 @@ func SFTPUpload(filePath, remoteName string, config *TestConfig) error {
 	return nil
 }
 
-func SFTPDownload(pattern string, localPath string, config *TestConfig) error {
-	// Ensure remote path uses forward slashes
-	remotePath := filepath.ToSlash(config.RemotePath)
-	fmt.Printf("Searching in remote path: %s\n", remotePath)
-
+func SFTPDownload(remoteName, localPath string, config *TestConfig) error {
+	// Create SFTP client connection
 	sshConfig := &ssh.ClientConfig{
 		User:            config.Username,
 		Auth:            []ssh.AuthMethod{ssh.Password(config.Password)},
@@ -151,34 +148,10 @@ func SFTPDownload(pattern string, localPath string, config *TestConfig) error {
 	}
 	defer client.Close()
 
-	// List files in remote directory
-	files, err := client.ReadDir(remotePath)
-	if err != nil {
-		fmt.Printf("Error listing directory: %v\n", err)
-		return err
-	}
-
-	// Find files matching pattern
-	matched := false
-	fmt.Println("Files: ", files)
-	fmt.Println("Pattern: ", pattern)
-	for _, file := range files {
-		if strings.HasPrefix(file.Name(), pattern) {
-			remoteFilePath := filepath.ToSlash(filepath.Join(remotePath, file.Name()))
-			downloadPath := filepath.Join(config.LocalPath, file.Name())
-			fmt.Printf("Downloading %s to %s\n", remoteFilePath, downloadPath)
-			if err := downloadFile(client, remoteFilePath, downloadPath); err != nil {
-				fmt.Printf("Download error: %v\n", err)
-				return err
-			}
-			matched = true
-		}
-	}
-
-	if !matched {
-		return fmt.Errorf("no files found matching pattern: %s", pattern)
-	}
-	return nil
+	// Use direct file path instead of pattern matching
+	remotePath := filepath.ToSlash(filepath.Join(config.RemotePath, remoteName))
+	fmt.Printf("Downloading %s to %s\n", remotePath, localPath)
+	return downloadFile(client, remotePath, localPath)
 }
 
 func downloadFile(client *sftp.Client, remotePath, localPath string) error {

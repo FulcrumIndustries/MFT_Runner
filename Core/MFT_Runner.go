@@ -24,23 +24,23 @@ type FilesizePolicy struct {
 
 // Keep only the essential test configuration
 type TestConfig struct {
-	NumClients              int              `json:"num_clients"`  // Concurrent workers
-	NumRequests             int              `json:"num_requests"` // Total files to transfer
-	NumRequestsFirstClients int              `json:"num_requests_first_clients,omitempty"`
-	RampUp                  string           `json:"rampup"`
-	Type                    string           `json:"type"`
-	Protocol                string           `json:"protocol,omitempty"`
-	Host                    string           `json:"host"`
-	Port                    int              `json:"port"`
-	FilesizePolicies        []FilesizePolicy `json:"filesizepolicies"`
-	TestID                  string           `json:"testid"`
-	RemotePath              string           `json:"remotepath"`
-	LocalPath               string           `json:"localpath"`
-	WorkerID                int              `json:"worker_id"`
-	Timeout                 int              `json:"timeout"`
-	Username                string           `json:"username"`
-	Password                string           `json:"password"`
-	SourcePattern           string           `json:"source_pattern"` // For downloads: pattern to match source files
+	NumClients              int              `json:"NumClients"`  // Concurrent workers
+	NumRequests             int              `json:"NumRequests"` // Total files to transfer
+	NumRequestsFirstClients int              `json:"NumRequestsFirstClients,omitempty"`
+	RampUp                  string           `json:"RampUp"`
+	Type                    string           `json:"Type"`
+	Protocol                string           `json:"Protocol,omitempty"`
+	Host                    string           `json:"Host"`
+	Port                    int              `json:"Port"`
+	FilesizePolicies        []FilesizePolicy `json:"FilesizePolicies"`
+	TestID                  string           `json:"TestID"`
+	RemotePath              string           `json:"RemotePath"`
+	LocalPath               string           `json:"LocalPath"`
+	WorkerID                int              `json:"WorkerID"`
+	Timeout                 int              `json:"Timeout"`
+	Username                string           `json:"Username"`
+	Password                string           `json:"Password"`
+	UploadTestID            string           `json:"upload_test_id" validate:"required_if=Type DOWNLOAD"`
 }
 
 // ErrorHandler is a function type for handling test errors
@@ -95,6 +95,7 @@ type transferResult struct {
 	success  bool
 	duration time.Duration
 	error    string
+	dataKB   float64
 }
 
 func NewTestReport(config TestConfig) *TestReport {
@@ -131,25 +132,77 @@ func (r *TestReport) Finalize() {
 		AvgTime float64 `json:"avg_time_ms"`
 	})
 
-	// Calculate data transferred
-	var totalDataKB float64
-	for _, policy := range r.Config.FilesizePolicies {
-		sizeKB := float64(policy.Size)
-		switch policy.Unit {
-		case "MB":
-			sizeKB *= 1024
-		case "GB":
-			sizeKB *= 1024 * 1024
-		case "B":
-			sizeKB /= 1024
+	// Modified data calculation section
+	if r.Config.Type == "UPLOAD" {
+		// Original upload calculation
+		var totalDataKB float64
+		for _, policy := range r.Config.FilesizePolicies {
+			sizeKB := float64(policy.Size)
+			switch policy.Unit {
+			case "MB":
+				sizeKB *= 1024
+			case "GB":
+				sizeKB *= 1024 * 1024
+			case "B":
+				sizeKB /= 1024
+			}
+			totalDataKB += sizeKB * float64(policy.Count)
 		}
-		totalDataKB += sizeKB * float64(policy.Count)
-	}
-	r.Summary.TotalDataKB = totalDataKB
+		r.Summary.TotalDataKB = totalDataKB
+	} else {
+		// New download calculation using actual transferred files
+		listPath := filepath.Join("Work", "testfiles", r.Config.UploadTestID, "uploaded.list")
+		content, err := os.ReadFile(listPath)
+		if err == nil {
+			lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+			var totalDataKB float64
+			var sizeKB float64
+			for _, line := range lines {
+				// Parse filename format: [size][unit]_[timestamp].dat
+				parts := strings.SplitN(line, "_", 2)
+				if len(parts) < 1 {
+					continue
+				}
 
-	// Throughput calculations
+				sizePart := parts[0]
+				var size float64
+				var unit string
+
+				// Split numeric size and unit
+				for i, c := range sizePart {
+					if c < '0' || c > '9' {
+						size, _ = strconv.ParseFloat(sizePart[:i], 64)
+						unit = strings.ToUpper(sizePart[i:])
+						break
+					}
+				}
+
+				// Convert to KB
+				switch unit {
+				case "K":
+					sizeKB = size
+				case "M":
+					sizeKB = size * 1024
+				case "G":
+					sizeKB = size * 1024 * 1024
+				case "B":
+					sizeKB = size / 1024
+				}
+				totalDataKB += sizeKB
+			}
+			r.Summary.TotalDataKB = totalDataKB
+		}
+	}
+
+	// Update throughput calculations
 	if r.Duration.Seconds() > 0 {
-		r.Summary.AvgThroughputMBps = (totalDataKB / 1024) / r.Duration.Seconds()
+		r.Summary.AvgThroughputMBps = (r.Summary.TotalDataKB / 1024) / r.Duration.Seconds()
+		// Calculate peak throughput from time series
+		for _, ts := range r.TimeSeries {
+			if ts.ThroughputMBps > r.Summary.PeakThroughputMBps {
+				r.Summary.PeakThroughputMBps = ts.ThroughputMBps
+			}
+		}
 	}
 
 	// Latency calculations
@@ -307,9 +360,9 @@ func RunMFTTest(config *TestConfig, onError ErrorHandler) (*TestReport, error) {
 		if result.success {
 			report.mu.Lock()
 			report.Latencies = append(report.Latencies, result.duration.Seconds()*1000)
+			report.Summary.TotalDataKB += result.dataKB
 			report.mu.Unlock()
-			dataKB := float64(config.FilesizePolicies[0].Size)
-			report.AddTimeSeriesSample(dataKB)
+			report.AddTimeSeriesSample(result.dataKB)
 			report.Summary.SuccessfulRequests++
 		} else {
 			if result.error != "" {
@@ -335,8 +388,6 @@ func RunMFTTest(config *TestConfig, onError ErrorHandler) (*TestReport, error) {
 	fmt.Printf("\n%s%s%-20s: %s%d (%.1f%%)%s", colorReset, logPrefix, "Failed", colorRed, report.Summary.FailedRequests, failPercent, colorReset)
 	fmt.Printf("\n%s%s%-20s: %s%.2f req/s%s", colorReset, logPrefix, "Throughput", colorCyan, report.Summary.AvgThroughputMBps, colorReset)
 	fmt.Printf("\n%s%s%-20s: %s%.2fms%s", colorReset, logPrefix, "Avg Latency", colorCyan, report.Summary.AvgLatencyMs, colorReset)
-
-	defer os.RemoveAll(fmt.Sprintf("testfiles/%s", config.TestID)) // Cleanup files
 
 	// Return report for writing in main
 	return report, nil
@@ -377,6 +428,8 @@ func formatSize(policy *FilesizePolicy) string {
 func executeTransfer(config TestConfig, transferID int, onError ErrorHandler) transferResult {
 	workerID := config.WorkerID
 	var policy *FilesizePolicy
+	var remoteName string
+
 	if config.Type == "UPLOAD" {
 		policy = selectFileSize(config.FilesizePolicies)
 		if policy == nil || policy.Count < 1 {
@@ -390,7 +443,7 @@ func executeTransfer(config TestConfig, transferID int, onError ErrorHandler) tr
 			if config.Type == "UPLOAD" {
 				return formatSize(policy)
 			}
-			return config.SourcePattern
+			return filepath.Base(remoteName)
 		}(),
 		colorReset)
 
@@ -401,7 +454,7 @@ func executeTransfer(config TestConfig, transferID int, onError ErrorHandler) tr
 		os.MkdirAll(config.LocalPath, 0755)
 	}
 
-	var selectedFile, remoteName string
+	var selectedFile string
 	var absPath string
 	if config.Type == "UPLOAD" {
 		// Get random file from manifest for uploads
@@ -421,11 +474,34 @@ func executeTransfer(config TestConfig, transferID int, onError ErrorHandler) tr
 		if _, err := os.Stat(absPath); os.IsNotExist(err) {
 			return transferResult{success: false, duration: 0, error: fmt.Sprintf("file_not_found: %s", absPath)}
 		}
+
+		// Write to uploaded files list
+		listPath := filepath.Join("Work", "testfiles", config.TestID, "uploaded.list")
+		os.MkdirAll(filepath.Dir(listPath), 0755) // Ensure directory exists
+		f, err := os.OpenFile(listPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Printf("Error writing to uploaded.list: %v", err)
+			return transferResult{success: false, error: "manifest write error"}
+		}
+		defer f.Close()
+		fmt.Fprintf(f, "%s\n", remoteName)
 	} else {
-		// For downloads, use the source pattern
-		remoteName = config.SourcePattern
-		absPath = filepath.Join(config.LocalPath, fmt.Sprintf("download_%d_%d.dat", workerID, transferID))
-		selectedFile = filepath.Base(absPath)
+		// For downloads, use the uploaded files list
+		listPath := filepath.Join("Work", "testfiles", config.UploadTestID, "uploaded.list")
+		content, err := os.ReadFile(listPath)
+		if err != nil {
+			return transferResult{success: false, error: "missing uploaded files list"}
+		}
+
+		files := strings.Split(strings.TrimSpace(string(content)), "\n")
+		if len(files) == 0 {
+			return transferResult{success: false, error: "no uploaded files available"}
+		}
+
+		// Select file based on worker and transfer ID
+		idx := ((workerID-1)*config.NumRequests + (transferID - 1)) % len(files)
+		remoteName = strings.TrimSpace(files[idx])
+		absPath = filepath.Join(config.LocalPath, filepath.Base(remoteName))
 	}
 
 	// Create a channel to signal completion
@@ -440,7 +516,7 @@ func executeTransfer(config TestConfig, transferID int, onError ErrorHandler) tr
 				if config.Type == "UPLOAD" {
 					return formatSize(policy)
 				}
-				return config.SourcePattern
+				return filepath.Base(remoteName)
 			}(), config.RemotePath, colorReset)
 
 		switch config.Protocol {
@@ -482,7 +558,7 @@ func executeTransfer(config TestConfig, transferID int, onError ErrorHandler) tr
 		}
 		fmt.Printf("%s%sWorker %d - Completed in %s | %s%s\n",
 			colorGreen, logPrefix, workerID, duration.Round(time.Millisecond), selectedFile, colorReset)
-		return transferResult{success: true, duration: duration}
+		return transferResult{success: true, duration: duration, dataKB: float64(config.FilesizePolicies[0].Size)}
 	case <-time.After(time.Duration(config.Timeout) * time.Second * 2):
 		// Give some buffer beyond the protocol timeout
 		log.Printf("Transfer %s exceeded maximum allowed time", selectedFile)

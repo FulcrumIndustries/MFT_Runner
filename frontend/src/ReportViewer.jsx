@@ -203,10 +203,10 @@ const SummaryCards = ({ report, mode }) => {
             </Typography>
             <Typography variant="h6">File Sizes</Typography>
             <Typography variant="body2" color="text.secondary">
-              {report.config.filesizepolicies.map((policy, index) => (
+              {report.config.FilesizePolicies.map((policy, index) => (
                 <span key={index}>
                   {formatSize(policy.size)} ({policy.percent}%)
-                  {index < report.config.filesizepolicies.length - 1
+                  {index < report.config.FilesizePolicies.length - 1
                     ? ", "
                     : ""}
                 </span>
@@ -250,7 +250,7 @@ const SummaryCards = ({ report, mode }) => {
         >
           <Box>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-              {report.config.type.toLowerCase() === "upload" ? (
+              {report.config.Type.toLowerCase() === "upload" ? (
                 <UploadIcon
                   fontSize="large"
                   sx={{
@@ -274,10 +274,10 @@ const SummaryCards = ({ report, mode }) => {
               <Typography variant="h6">Protocol</Typography>
             </Box>
             <Typography variant="h3" sx={{ textTransform: "uppercase" }}>
-              {report.config.protocol}
+              {report.config.Protocol}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Direction: {report.config.type}
+              Direction: {report.config.Type}
             </Typography>
           </Box>
         </Card>
@@ -865,15 +865,15 @@ const ReportViewer = () => {
                   <TableBody>
                     <TableRow>
                       <TableCell>Protocol</TableCell>
-                      <TableCell>{report.config.protocol}</TableCell>
+                      <TableCell>{report.config.Protocol}</TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Type</TableCell>
-                      <TableCell>{report.config.type}</TableCell>
+                      <TableCell>{report.config.Type}</TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Workers</TableCell>
-                      <TableCell>{report.config.num_clients}</TableCell>
+                      <TableCell>{report.config.NumClients}</TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Total Requests</TableCell>
@@ -882,10 +882,10 @@ const ReportViewer = () => {
                     <TableRow>
                       <TableCell>File Size</TableCell>
                       <TableCell>
-                        {report.config.filesizepolicies.map((policy, index) => (
+                        {report.config.FilesizePolicies.map((policy, index) => (
                           <span key={index}>
                             {formatSize(policy.size)} ({policy.percent}%)
-                            {index < report.config.filesizepolicies.length - 1
+                            {index < report.config.FilesizePolicies.length - 1
                               ? ", "
                               : ""}
                           </span>

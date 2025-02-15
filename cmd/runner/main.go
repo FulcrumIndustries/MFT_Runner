@@ -8,7 +8,17 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
+)
+
+const (
+	colorReset  = "\033[0m"
+	colorCyan   = "\033[36m"
+	colorYellow = "\033[33m"
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	logPrefix   = "[MFT] "
 )
 
 func main() {
@@ -57,18 +67,43 @@ func main() {
 	// Override config with CLI parameters
 	config.NumClients, _ = strconv.Atoi(args[1])
 	totalRequests, _ := strconv.Atoi(args[2])
-	config.NumRequests = totalRequests / config.NumClients
 
-	// Calculate requests per client correctly
-	if rem := totalRequests % config.NumClients; rem > 0 {
-		config.NumRequests++
-		// Adjust first 'rem' clients to handle remainder
-		config.NumRequestsFirstClients = rem
+	if config.Type == "UPLOAD" {
+		// File generation for uploads
+		config.NumRequests = totalRequests / config.NumClients
+		if rem := totalRequests % config.NumClients; rem > 0 {
+			config.NumRequests++
+			config.NumRequestsFirstClients = rem
+		}
+		fmt.Printf("\n%s[FILES] Generating %d test files...%s\n", colorCyan, totalRequests, colorReset)
+		if err := Core.CreateTestFiles(*config, totalRequests); err != nil {
+			log.Fatal("Error creating test files:", err)
+		}
+		fmt.Printf("%s[FILES] Test files generated successfully.%s\n", colorGreen, colorReset)
+	} else {
+		// For downloads, get total requests from uploaded.list
+		fmt.Printf("\n%s[FILES] Getting all requests from testfiles/%s/uploaded.list...%s\n", colorCyan, config.UploadTestID, colorReset)
+		listPath := filepath.Join("Work", "testfiles", config.UploadTestID, "uploaded.list")
+		content, err := os.ReadFile(listPath)
+		if err != nil {
+			log.Printf("%s[ERROR] Missing uploaded.list at: %s%s", colorRed, listPath, colorReset)
+			log.Fatal("Missing uploaded files list:", err)
+		}
+		totalRequests = len(strings.Split(strings.TrimSpace(string(content)), "\n"))
+		config.NumRequests = totalRequests / config.NumClients
+		if rem := totalRequests % config.NumClients; rem > 0 {
+			config.NumRequests++
+			config.NumRequestsFirstClients = rem
+		}
+		fmt.Printf("%s[FILES] Found %d requests in testfiles/%s/uploaded.list.%s\n", colorGreen, totalRequests, config.UploadTestID, colorReset)
 	}
 
-	// File generation
-	if err := Core.CreateTestFiles(*config, totalRequests); err != nil {
-		log.Fatal("Error creating test files:", err)
+	log.Printf("Initializing test parameters:")
+	log.Printf("Concurrent Clients: %d", config.NumClients)
+	log.Printf("Total Files to Transfer: %d", totalRequests)
+	log.Printf("Files per Client: %d", config.NumRequests)
+	if rem := totalRequests % config.NumClients; rem > 0 {
+		log.Printf("First %d clients will transfer %d files", rem, config.NumRequests)
 	}
 
 	// Run test
@@ -93,20 +128,37 @@ func main() {
 	if err := report.WriteToFile(reportPath); err != nil {
 		log.Fatal("Failed to write report:", err)
 	}
-	log.Printf("\n=== Test Report Generated ===")
-	log.Printf("Location: %s", reportPath)
-	log.Printf("To visualize results:")
-	log.Printf("1. Launch MFT Runner UI")
-	log.Printf("2. Import this report file")
-	log.Printf("3. View interactive performance charts")
 
-	log.Printf("Initializing test parameters:")
-	log.Printf("Concurrent Clients: %d", config.NumClients)
-	log.Printf("Total Files to Transfer: %d", totalRequests)
-	log.Printf("Files per Client: %d", config.NumRequests)
-	if rem := totalRequests % config.NumClients; rem > 0 {
-		log.Printf("First %d clients will transfer %d files", rem, config.NumRequests)
+	if config.Type == "UPLOAD" {
+		testDir := filepath.Join("Work", "testfiles", config.TestID)
+
+		// Delete only .dat files
+		datFiles, err := filepath.Glob(filepath.Join(testDir, "*.dat"))
+		if err == nil {
+			for _, f := range datFiles {
+				if err := os.Remove(f); err == nil {
+					// fmt.Printf("%sDeleted: %s%s\n", colorYellow, f, colorReset)
+				}
+			}
+			fmt.Printf("\n%s🧹 Cleaned up %d data files in:%s\n%s%s\n",
+				colorGreen, len(datFiles), colorReset, colorYellow, testDir)
+		} else {
+			log.Printf("%sFailed to find .dat files: %v%s", colorRed, err, colorReset)
+		}
 	}
+
+	if config.Type == "UPLOAD" {
+		fmt.Printf("%s\n⬇️  Use the following \"upload_test_id\" to run an identical Download campaign:\n%s%s%s",
+			colorGreen, colorYellow, config.TestID, colorReset)
+	}
+
+	fmt.Printf("\n\n%s=== TEST REPORT GENERATED ===%s", colorGreen, colorReset)
+	fmt.Printf("\n🗃️  Location: %s%s%s", colorYellow, reportPath, colorReset)
+	fmt.Printf("\n📊 To visualize results:")
+	fmt.Printf("\n  1. Launch Aionyx - MFT Runner UI")
+	fmt.Printf("\n  2. Import this report file")
+	fmt.Printf("\n  3. View interactive performance charts")
+
 }
 
 func printHelp() {
@@ -135,19 +187,19 @@ Other Options:
 
 Campaign File Format:
 {
-  "protocol": "FTP",
-  "host": "ftp.example.com",
-  "port": 21,
-  "username": "testuser",
-  "password": "testpass",
-  "type": "Upload",
-  "remote_path": "/uploads",
-  "local_path": "./testfiles",
-  "timeout": 30,
-  "filesizepolicies": [
-    {"size": 1, "unit": "MB", "percent": 50},
-    {"size": 5, "unit": "MB", "percent": 50}
-  ]
+  "FilesizePolicies": [{ "Size": 1, "Unit": "K", "Percent": 100 }],
+  "Protocol": "FTP",
+  "Type": "UPLOAD",
+  "Name": "UPLOAD_FTP_1KB",
+  "Timeout": 5,
+  "Host": "localhost",
+  "Port": 2121,
+  "Username": "ftp",
+  "Password": "ftp",
+  "LocalPath": "path/to/local/file",
+  "RemotePath": "/A/",
+  "RampUp": "1s",
+  "HoldFor": "10s"
 }`)
 }
 

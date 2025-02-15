@@ -16,6 +16,7 @@ import paramiko
 from paramiko import Transport, ServerInterface, SFTPServerInterface, SFTPServer, SFTPAttributes, SFTPHandle
 import socket
 import errno
+import sys
 
 # Configuration
 FTP_USER = "ftp"
@@ -28,283 +29,234 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 RECEIVE_DIR = os.path.join(SCRIPT_DIR, "ftpreceive")
 os.makedirs(RECEIVE_DIR, exist_ok=True)
 
-# Add a helper function to extract bytes from a part (Not directly used here, but kept for potential future use)
+# Add a helper function to extract bytes (Not directly used here, but kept)
 def extract_bytes(obj):
-    # If the object is already a BytesIO, return its content
     if isinstance(obj, io.BytesIO):
         return obj.getvalue()
     if hasattr(obj, 'read'):
         try:
-            # Try reading from the object
             data = obj.read()
             if isinstance(data, io.BytesIO):
                 return data.getvalue()
-            if not isinstance(data, bytes):
-                return data.encode() # or str(data).encode(),  consider how you want to handle non-string data.
-            return data
-
+            return data.encode() if not isinstance(data, bytes) else data
         except Exception as e:
             print("Error reading object:", e)
             return b''
-    else:
-        try: # attempt direct conversion if not readable
-            return bytes(obj)
-        except:
-            print(f"Cannot convert object of type {type(obj)} to bytes")
-            return b""
-
-
+    try:
+        return bytes(obj)
+    except:
+        print(f"Cannot convert object of type {type(obj)} to bytes")
+        return b""
 
 def start_ftp_server():
-    # Set up user permissions (full access)
     authorizer = DummyAuthorizer()
-    authorizer.add_user(
-        username=FTP_USER,
-        password=FTP_PASS,
-        homedir=RECEIVE_DIR,
-        perm="elradfmwMT"  # Add directory creation and file write permissions
-    )
-
-    # Configure server
+    authorizer.add_user(FTP_USER, FTP_PASS, RECEIVE_DIR, perm="elradfmwMT")
     handler = FTPHandler
     handler.authorizer = authorizer
     handler.banner = "MFT Test FTP Server Ready"
-    
-    # Add these performance configurations
-    handler.max_cons = 50  # Maximum simultaneous connections
-    handler.max_cons_per_ip = 30  # Maximum connections from single IP
-    handler.timeout = 300  # Connection timeout in seconds
-    handler.use_sendfile = True  # Use efficient file transfer
-    handler.tcp_no_delay = True  # Reduce latency
-
-    # Configure thread pool executor
-    handler.thread_pool = ThreadPoolExecutor(max_workers=30)
-
-    # Bind to localhost only
+    handler.max_cons = 50
+    handler.max_cons_per_ip = 50
+    handler.timeout = 300
+    handler.use_sendfile = sys.platform != "win32"  # Disable on Windows
+    handler.tcp_no_delay = True
+    handler.thread_pool = ThreadPoolExecutor(max_workers=50)
     server = FTPServer(("127.0.0.1", FTP_PORT), handler)
-    server.max_cons = 50  # Match handler setting
+    server.max_cons = 50
     server.max_cons_per_ip = 50
-    
     print(f"📁 FTP Server listening on port {FTP_PORT}")
     print(f"📂 Saving files to: {RECEIVE_DIR}")
     print(f"🔑 Credentials: {FTP_USER}/{FTP_PASS}")
     server.serve_forever()
 
-
-
 def generate_certificate(prefix, common_name):
     key_path = os.path.join("AS2ServerCerts", f"{prefix}_key.pem")
     cert_path = os.path.join("AS2ServerCerts", f"{prefix}_cert.pem")
-    
-    # Ensure directory exists
     os.makedirs(os.path.dirname(key_path), exist_ok=True)
     os.makedirs(os.path.dirname(cert_path), exist_ok=True)
-    
-    # Generate private key
-    key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048,
-        backend=default_backend()
-    )
-    
-    # Create self-signed certificate
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, common_name),
-    ])
-    
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(issuer)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.utcnow())
-        .not_valid_after(datetime.utcnow() + timedelta(days=365))
-        .add_extension(
-            x509.KeyUsage(
-                digital_signature=True,
-                key_encipherment=True,
-                content_commitment=False,
-                data_encipherment=False,
-                key_agreement=False,
-                key_cert_sign=False,
-                crl_sign=False,
-                encipher_only=False,
-                decipher_only=False
-            ),
-            critical=True
-        )
-        .add_extension(
-            x509.ExtendedKeyUsage([x509.ExtendedKeyUsageOID.SERVER_AUTH]),
-            critical=False
-        )
-        .add_extension(
-            x509.BasicConstraints(ca=True, path_length=None),
-            critical=True,
-        )
-        .sign(key, hashes.SHA256(), default_backend())
-    )
-    
-    # Write private key to file
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
+    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
+    cert = (x509.CertificateBuilder().subject_name(subject).issuer_name(issuer)
+            .public_key(key.public_key()).serial_number(x509.random_serial_number())
+            .not_valid_before(datetime.utcnow()).not_valid_after(datetime.utcnow() + timedelta(days=365))
+            .add_extension(x509.KeyUsage(digital_signature=True, key_encipherment=True,
+                                       content_commitment=False, data_encipherment=False,
+                                       key_agreement=False, key_cert_sign=False, crl_sign=False,
+                                       encipher_only=False, decipher_only=False), critical=True)
+            .add_extension(x509.ExtendedKeyUsage([x509.ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .sign(key, hashes.SHA256(), default_backend()))
     with open(key_path, "wb") as f:
-        f.write(key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption(),
-        ))
-    
-    # Write certificate to file
+        f.write(key.private_bytes(encoding=serialization.Encoding.PEM,
+                                  format=serialization.PrivateFormat.TraditionalOpenSSL,
+                                  encryption_algorithm=serialization.NoEncryption()))
     with open(cert_path, "wb") as f:
         f.write(cert.public_bytes(serialization.Encoding.PEM))
-
     print(f"🔐 Generated {prefix} certificate: {cert_path}")
 
 class StubServer(ServerInterface):
     def check_auth_password(self, username, password):
-        if username == FTP_USER and password == FTP_PASS:
-            return paramiko.AUTH_SUCCESSFUL
-        return paramiko.AUTH_FAILED
+        return paramiko.AUTH_SUCCESSFUL if username == FTP_USER and password == FTP_PASS else paramiko.AUTH_FAILED
 
     def check_channel_request(self, kind, chanid):
-        if kind == "session":
-            return paramiko.OPEN_SUCCEEDED
-        return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+        return paramiko.OPEN_SUCCEEDED if kind == "session" else paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 
-class StubSFTPHandle(paramiko.SFTPHandle):
+class StubSFTPHandle(SFTPHandle):
     def __init__(self, file_obj):
         super().__init__()
         self.file_obj = file_obj
+        self._lock = threading.Lock()  # File access lock
 
     def close(self):
-        self.file_obj.close()
-        return paramiko.SFTP_OK
-
-    def write(self, offset, data):
-        self.file_obj.seek(offset)
-        self.file_obj.write(data)
-        self.file_obj.flush()
-        return paramiko.SFTP_OK
+        with self._lock:  # Acquire lock for closing
+            print(f"🔒 Closing file: {self.file_obj.name}")
+            return self.file_obj.close()
 
     def read(self, offset, length):
-        self.file_obj.seek(offset)
-        return self.file_obj.read(length)
+        with self._lock:  # Acquire lock for reading
+            print(f"📖 Reading {length} bytes from offset {offset} in {self.file_obj.name}")
+            self.file_obj.seek(offset)
+            return self.file_obj.read(length)
+
+    def write(self, offset, data):
+        with self._lock:  # Acquire lock for writing
+            print(f"📝 Writing {len(data)} bytes at offset {offset} in {self.file_obj.name}")
+            try:
+                self.file_obj.seek(offset)
+                self.file_obj.write(data)
+                self.file_obj.flush()
+                return paramiko.SFTP_OK
+            except Exception as e:
+                print(f"Write error: {e}")
+                return paramiko.SFTP_FAILURE  # Use SFTP_FAILURE
 
     def stat(self):
-        try:
-            return SFTPAttributes.from_stat(os.fstat(self.file_obj.fileno()))
-        except OSError as e:
-            return paramiko.SFTPServer.convert_errno(e.errno)
-            
+        return self._get_attributes()
+
+    def _get_attributes(self):
+        with self._lock:
+            try:
+                stat = SFTPAttributes.from_stat(os.fstat(self.file_obj.fileno()))
+                return stat
+            except OSError as e:
+                print(f"Error in stat: {e}")
+                return paramiko.SFTPServer.convert_errno(e.errno)
+
 
 class StubSFTPServer(SFTPServerInterface):
-    def __init__(self, server, *largs, **kwargs):
-        super(StubSFTPServer, self).__init__(server, *largs, **kwargs)
-        self.root_path = RECEIVE_DIR  # Set the root path for SFTP operations
-
+    def __init__(self, server):
+        self.server = server
 
     def _realpath(self, path):
-        """Convert path to absolute path, ensuring it's within RECEIVE_DIR."""
-        normalized_path = os.path.normpath(os.path.join(self.root_path, path.lstrip('/')))
-        if not normalized_path.startswith(self.root_path):
-             raise Exception("Access denied: Attempt to access outside root directory.")
-        return normalized_path
+        return os.path.normpath(os.path.join(RECEIVE_DIR, path.lstrip('/')))
+
+    def open(self, path, flags, attr):
+        full_path = self._realpath(path)
+        print(f"📝 Opening file: {full_path} (flags={flags:08x})")  # Log flags in hex
+
+        try:
+            if flags & os.O_CREAT:
+                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                if flags & os.O_APPEND:
+                    mode = 'ab'
+                elif flags & os.O_TRUNC:
+                    mode = 'wb'
+                else:
+                    mode = 'wb'  # Create and write (overwrite if exists)
+            elif flags & (os.O_WRONLY | os.O_RDWR):
+                if flags & os.O_APPEND:
+                  mode = 'ab'
+                else:
+                  mode = 'r+b'  # Open for reading and writing
+            else:  # os.O_RDONLY or others
+                mode = 'rb'
+            print(mode)
+            f = open(full_path, mode)
+            handle = StubSFTPHandle(f)
+            return handle
+        except OSError as e:
+            print(f"Error opening file: {e}")
+            return paramiko.SFTPServer.convert_errno(e.errno)
+    
+    def _list_folder_helper(self, full_path):
+        entries = []
+        for item in os.listdir(full_path):
+            item_path = os.path.join(full_path, item)
+            attr = SFTPAttributes.from_stat(os.stat(item_path))
+            attr.filename = item
+            entries.append(attr)
+        return entries
 
     def list_folder(self, path):
-        """List files and directories within a given path."""
         full_path = self._realpath(path)
-        print(f"Listing folder: {full_path}")  # Debugging
+        print(f"📂 Listing folder: {full_path}")
         try:
-            entries = []
-            for item in os.listdir(full_path):
-                item_path = os.path.join(full_path, item)
-                attr = SFTPAttributes.from_stat(os.stat(item_path))
-                attr.filename = item
-                entries.append(attr)
-            return entries
+            return self._list_folder_helper(full_path)
         except OSError as e:
-            print(f"OSError listing folder: {e}")  # More specific error logging
+            print(f"OSError listing folder: {e}")
             return paramiko.SFTPServer.convert_errno(e.errno)
 
-
     def stat(self, path):
-        """Return file/directory attributes."""
         full_path = self._realpath(path)
-        print(f"Stat for: {full_path}")  # Debugging
+        print(f"📊 Stat for: {full_path}")
         try:
             return SFTPAttributes.from_stat(os.stat(full_path))
         except OSError as e:
-            print(f"OSError in stat: {e}")  # More specific error logging
+            print(f"OSError in stat: {e}")
             return paramiko.SFTPServer.convert_errno(e.errno)
 
     def lstat(self, path):
-        """Return file/directory attributes (like stat, but doesn't follow symlinks)."""
         full_path = self._realpath(path)
-        print(f"lstat for: {full_path}")
+        print(f"📊 lstat for: {full_path}")
         try:
-            return SFTPAttributes.from_stat(os.lstat(full_path))  # Use lstat
+            return SFTPAttributes.from_stat(os.lstat(full_path))
         except OSError as e:
             print(f"OSError in lstat: {e}")
             return paramiko.SFTPServer.convert_errno(e.errno)
 
-    def open(self, path, flags, attr):
-        """Open a file for read/write/append operations."""
-        full_path = self._realpath(path)
-        print(f"📝 Opening file: {full_path} (flags={flags})")
-        os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        
-        # Convert flags to proper mode
-        mode = 'r+b' if (flags & os.O_WRONLY) else 'rb'  # Read mode for downloads
-        
-        try:
-            f = open(full_path, mode)
-            handle = StubSFTPHandle(f)
-            handle.readfile = f  # Separate read file descriptor
-            return handle
-        except OSError as e:
-            return paramiko.SFTPServer.convert_errno(e.errno)
-
     def remove(self, path):
-        """Remove a file."""
         full_path = self._realpath(path)
+        print(f"🗑️ Removing file: {full_path}")
         try:
             os.remove(full_path)
             return paramiko.SFTP_OK
         except OSError as e:
+            print(f"Error removing file: {e}")
             return paramiko.SFTPServer.convert_errno(e.errno)
 
     def rename(self, oldpath, newpath):
-        """Rename a file or directory."""
         old_full_path = self._realpath(oldpath)
         new_full_path = self._realpath(newpath)
+        print(f"🔄 Renaming: {old_full_path} to {new_full_path}")
         try:
             os.rename(old_full_path, new_full_path)
             return paramiko.SFTP_OK
         except OSError as e:
+            print(f"Error renaming: {e}")
             return paramiko.SFTPServer.convert_errno(e.errno)
-
+            
     def mkdir(self, path, attr):
-        """Create a directory."""
         full_path = self._realpath(path)
+        print(f"Creating directory: {full_path}")
         try:
-            os.makedirs(full_path, exist_ok=True)  # exist_ok=True prevents error if dir exists
+            os.makedirs(full_path, exist_ok=True)
             return paramiko.SFTP_OK
         except OSError as e:
+            print(f"Error creating directory: {e}")
             return paramiko.SFTPServer.convert_errno(e.errno)
 
     def rmdir(self, path):
-        """Remove a directory."""
         full_path = self._realpath(path)
+        print(f"🗑️ Removing directory: {full_path}")
         try:
-            os.rmdir(full_path)  # rmdir only removes empty directories
+            os.rmdir(full_path)
             return paramiko.SFTP_OK
         except OSError as e:
+            print(f"Error removing directory: {e}")
             return paramiko.SFTPServer.convert_errno(e.errno)
 
-
     def chattr(self, path, attr):
-        """ Change file/directory attributes.  (chmod/chown)"""
         full_path = self._realpath(path)
-
+        print(f"Changing attributes for: {full_path}")
         try:
             if attr.st_mode is not None:
                 os.chmod(full_path, attr.st_mode)
@@ -312,34 +264,31 @@ class StubSFTPServer(SFTPServerInterface):
                 os.chown(full_path, attr.st_uid, attr.st_gid)
             return paramiko.SFTP_OK
         except OSError as e:
+            print(f"Error changing attributes: {e}")
             return paramiko.SFTPServer.convert_errno(e.errno)
-
+            
     def symlink(self, target_path, path):
          return paramiko.SFTPOperationNotSupported
 
     def readlink(self, path):
         return paramiko.SFTPOperationNotSupported
 
-
 def start_sftp_server():
     host_key = paramiko.RSAKey.generate(2048)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(('127.0.0.1', SFTP_PORT))
-    sock.listen(50)  # Listen with a backlog of 50
-
+    sock.listen(50)
     print(f"📁 SFTP Server listening on port {SFTP_PORT}")
     print(f"📂 Saving files to: {RECEIVE_DIR}")
     print(f"🔑 Credentials: {FTP_USER}/{FTP_PASS}")
-
-    # Use a ThreadPoolExecutor to handle multiple connections
     with ThreadPoolExecutor(max_workers=50) as executor:
         while True:
             try:
                 client, addr = sock.accept()
                 print(f"Accepted connection from {addr}")
                 client.settimeout(30)
-                executor.submit(handle_sftp_connection, client, addr, host_key)  # Submit the connection to the executor
+                executor.submit(handle_sftp_connection, client, addr, host_key)
             except Exception as e:
                 print(f"Error accepting connection: {e}")
 
@@ -350,13 +299,11 @@ def handle_sftp_connection(client, addr, host_key):
         transport.set_subsystem_handler('sftp', SFTPServer, StubSFTPServer)
         server = StubServer()
         transport.start_server(server=server)
-
         chan = transport.accept()
         if chan is None:
             print("No channel.")
             transport.close()
             return
-
         while transport.is_active():
             transport.join(1)
     except Exception as e:
@@ -365,12 +312,9 @@ def handle_sftp_connection(client, addr, host_key):
         transport.close()
         print(f"Connection from {addr} closed.")
 
-
 if __name__ == "__main__":
     print("🚀 Starting FTP/SFTP test servers...")
     threading.Thread(target=start_ftp_server, daemon=True).start()
     threading.Thread(target=start_sftp_server, daemon=True).start()
-
-    # Keep main thread alive
     while True:
         pass

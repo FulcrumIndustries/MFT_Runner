@@ -155,14 +155,19 @@ func FTPDownload(filePath, remoteName string, config *TestConfig, workerID int) 
 		return err
 	}
 
-	r, err := client.Retr(config.RemotePath)
+	// Build full remote path
+	remotePath := filepath.ToSlash(filepath.Join(config.RemotePath, remoteName))
+	log.Printf("Worker %d: Downloading from %s", workerID, remotePath)
+	r, err := client.Retr(remotePath)
 	if err != nil {
-		log.Printf("Worker %d: File retrieval failed - %v", workerID, err)
+		log.Printf("Worker %d: File retrieval failed for %s - %v", workerID, remotePath, err)
 		return err
 	}
 	defer r.Close()
 
-	file, err := os.CreateTemp("", "download-*.tmp")
+	// Create local file with original name
+	localPath := filepath.Join(config.LocalPath, filepath.Base(remotePath))
+	file, err := os.Create(localPath)
 	if err != nil {
 		return err
 	}

@@ -25,6 +25,8 @@ func MakeFile(filename string, directory string, size int64) error {
 	if err != nil {
 		return err
 	}
+	defer f.Close()
+
 	if err := f.Truncate(size); err != nil {
 		return err
 	}
@@ -73,10 +75,10 @@ func CreateTestFiles(config TestConfig, totalRequests int) error {
 		return fmt.Errorf("failed to write manifest: %w", err)
 	}
 
-	log.Printf("Successfully generated %d files in directory: %s", fileCounter, baseDir)
-	log.Printf("File size distribution:")
+	fmt.Printf("\nSuccessfully generated %d files in directory: %s%s%s", fileCounter, colorGreen, baseDir, colorReset)
+	fmt.Printf("\nFile size distribution:")
 	for _, p := range config.FilesizePolicies {
-		log.Printf(" - %d%s: %d files", p.Size, p.Unit, p.Count)
+		fmt.Printf("\n - %d%s: %d files", p.Size, p.Unit, p.Count)
 	}
 	return nil
 }

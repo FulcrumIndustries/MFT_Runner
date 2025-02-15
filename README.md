@@ -2,7 +2,6 @@
 
 ![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)
 ![License](https://img.shields.io/badge/License-MIT-blue)
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/FulcrumIndustries/MFT_Runner/build.yml)
 
 A high-performance testing framework for evaluating file transfer protocols under various network conditions and load scenarios.
 
@@ -10,7 +9,7 @@ A high-performance testing framework for evaluating file transfer protocols unde
 
 ## 🌟 Key Features
 
-- **Multi-Protocol Testing**: FTP, SFTP, HTTP/HTTPS support
+- **Multi-Protocol Testing**: FTP, SFTP, HTTP support
 - **Visual Analytics**: Illustrated dashboard after test execution
 - **Campaign System**: Save and reuse test configurations
 - **Smart Load Generation**:
@@ -154,23 +153,6 @@ graph TD
 - Resource utilization
 - Protocol-specific metrics
 
-## 🛠 Installation
-
-### Prerequisites
-
-- Go 1.21+
-- Node.js 18+ (for web interface)
-- Make (optional)
-
-bash
-Clone repository
-git clone https://github.com/FulcrumIndustries/MFT_Runner.git
-cd MFT_Runner
-Build backend
-make build-backend
-Setup frontend
-make install-frontend
-
 ## ⚙️ Configuration
 
 Create test campaigns in `Campaigns/` directory:
@@ -191,12 +173,6 @@ json
 {"size": 5, "unit": "MB", "percent": 30}
 ]
 }
-bash
-Start server (from project root)
-./mft-server --port 8080
-In separate terminal (from frontend directory)
-npm start
-Access the web interface at `http://localhost:5173`
 
 **Typical Workflow**:
 
@@ -208,7 +184,7 @@ Access the web interface at `http://localhost:5173`
 
 ## 🧪 Development
 
-Access the web interface at `http://localhost:5173`
+Access the web interface at DEV `http://localhost:5173`, PROD `http://localhost:8080`
 
 **Typical Workflow**:
 

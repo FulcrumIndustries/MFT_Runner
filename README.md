@@ -2,6 +2,9 @@
 
 ![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)
 ![License](https://img.shields.io/badge/License-MIT-blue)
+![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)
+![Vite](https://img.shields.io/badge/Vite-B73BFE?logo=vite&logoColor=FFD62E)
+![Node.js](https://img.shields.io/badge/Node.js-18+-339933?logo=node.js&logoColor=white)
 
 A high-performance testing framework for evaluating file transfer protocols under various network conditions and load scenarios.
 

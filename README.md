@@ -29,10 +29,16 @@ A high-performance testing framework for evaluating file transfer protocols unde
 
 ```bash
 # Clone & Build
-git clone https://github.com/yourusername/mft-runner.git
-cd mft-runner
-make build-backend
-make install-frontend
+git clone https://github.com/FulcrumIndustries/MFT_Runner.git
+
+# Build the load testing tool
+cd MFT_Runner
+go build -o mft-runner.exe cmd/runner/main.go
+
+# Start the web interface
+cd frontend
+npm install
+npm run dev
 ```
 
 ## 🧪 Basic Workflow
@@ -200,16 +206,6 @@ Access the web interface at `http://localhost:5173`
 4. **Analyze Results** → View throughput graphs and failure diagnostics
 5. **Compare Runs** → Track performance regressions/improvements
 
-## 📡 API Endpoints
-
-| Method | Endpoint              | Description                         |
-| ------ | --------------------- | ----------------------------------- |
-| GET    | `/api/test/status`    | Current test metrics and progress   |
-| POST   | `/api/test/start`     | Initiate new test with JSON payload |
-| GET    | `/api/test/history`   | List all historical test runs       |
-| GET    | `/api/campaigns`      | List available test configurations  |
-| GET    | `/api/campaigns/{id}` | Get detailed campaign specification |
-
 ## 🧪 Development
 
 Access the web interface at `http://localhost:5173`
@@ -224,26 +220,6 @@ Access the web interface at `http://localhost:5173`
 3. ▶️ Start test execution
 4. 📊 Monitor real-time statistics
 5. 📄 Review detailed reports
-
-## 🌐 API Endpoints
-
-| Method | Endpoint              | Description              |
-| ------ | --------------------- | ------------------------ |
-| GET    | /api/test/status      | Current test status      |
-| POST   | /api/test/start       | Start new test           |
-| GET    | /api/test/history     | Get test history         |
-| GET    | /api/campaigns        | List available campaigns |
-| GET    | /api/campaigns/{name} | Get campaign details     |
-
-## 🛠 Development
-
-bash
-Run test suite
-make test
-Build production artifacts
-make release
-Start dev environment
-make dev
 
 ## 🛣 Roadmap
 

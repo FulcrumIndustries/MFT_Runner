@@ -1,0 +1,4 @@
+node_modules/@mui/icons-material/!(CloudUpload)
+node_modules/**/*.map
+node_modules/**/*.ts
+node_modules/**/*.md 

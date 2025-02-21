@@ -34,13 +34,13 @@ import {
 import {
   Upload as UploadIcon,
   Refresh as RefreshIcon,
-  CloudUpload,
   BrightnessLow as BrightnessLowIcon,
   Brightness4 as Brightness4Icon,
   Brightness7 as Brightness7Icon,
   Upload as UploadIconMUI,
   Download as DownloadIcon,
 } from "@mui/icons-material";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import { useDropzone } from "react-dropzone";
 import {
   alpha,
@@ -565,7 +565,59 @@ const ReportViewer = () => {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
   const [mode, setMode] = useState("dark");
+
+  const validateReportStructure = (data) => {
+    const requiredFields = [
+      "config",
+      "summary",
+      "latencies",
+      "throughputs",
+      "errors",
+      "timestamp",
+    ];
+
+    const missingFields = requiredFields.filter((field) => !(field in data));
+    if (missingFields.length > 0) {
+      throw new Error(
+        `Invalid report format. Missing fields: ${missingFields.join(", ")}`
+      );
+    }
+
+    // Validate nested structure
+    const configFields = ["Protocol", "Host", "Port", "FilesizePolicies"];
+    const missingConfig = configFields.filter((f) => !(f in data.config));
+    if (missingConfig.length > 0) {
+      throw new Error(`Missing config fields: ${missingConfig.join(", ")}`);
+    }
+
+    // Validate latencies array
+    if (!Array.isArray(data.latencies) || data.latencies.some(isNaN)) {
+      throw new Error("Latencies must be an array of numbers");
+    }
+
+    // Validate summary structure
+    const summaryFields = [
+      "total_requests",
+      "successful_requests",
+      "failed_requests",
+      "avg_latency_ms",
+      "min_latency_ms",
+      "max_latency_ms",
+    ];
+    const missingSummary = summaryFields.filter((f) => !(f in data.summary));
+    if (missingSummary.length > 0) {
+      throw new Error(`Missing summary fields: ${missingSummary.join(", ")}`);
+    }
+
+    // Validate timestamp format
+    if (isNaN(new Date(data.timestamp).getTime())) {
+      throw new Error("Invalid timestamp format");
+    }
+
+    return true;
+  };
 
   const toggleTheme = () =>
     setMode((prev) => (prev === "light" ? "dark" : "light"));
@@ -593,9 +645,17 @@ const ReportViewer = () => {
       try {
         const data = JSON.parse(e.target.result);
         setReport(data);
+        validateReportStructure(data);
       } catch (err) {
+        setReport(null);
+        const message =
+          err instanceof SyntaxError
+            ? "Invalid JSON file. Please check the file format."
+            : `Invalid report: ${err.message}`;
+        setErrorMessage(message);
         console.error("Invalid report file:", err);
       } finally {
+        setTimeout(() => setErrorMessage(null), 5000);
         setLoading(false);
       }
     };
@@ -648,7 +708,7 @@ const ReportViewer = () => {
             }}
           >
             <input {...getInputProps()} />
-            <CloudUpload
+            <CloudUploadIcon
               sx={{
                 fontSize: 64,
                 color: colorTheme[mode].primary,
@@ -677,6 +737,17 @@ const ReportViewer = () => {
                 Analyzing report...
               </Typography>
             </Box>
+          )}
+
+          {errorMessage && (
+            <Paper
+              elevation={3}
+              sx={{ mt: 2, p: 2, bgcolor: "error.main", color: "white" }}
+            >
+              <Typography variant="body1" align="center">
+                {errorMessage}
+              </Typography>
+            </Paper>
           )}
         </Box>
       </ThemeProvider>

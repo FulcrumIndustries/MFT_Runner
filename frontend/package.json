@@ -2,6 +2,7 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
+  "bin": "server.js",
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
@@ -10,18 +11,28 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-dropzone": "^14.3.5",
-    "recharts": "^2.15.1"
+    "recharts": "^2.15.1",
+    "express": "^4.19.2"
   },
   "devDependencies": {
     "@emotion/babel-plugin": "^11.11.0",
     "@types/react": "^18.2.64",
     "@types/react-dom": "^18.2.21",
     "@vitejs/plugin-react": "^4.2.1",
-    "vite": "^5.1.4"
+    "vite": "^5.1.4",
+    "pkg": "^5.8.1"
   },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "pkg:win": "pkg --targets node18-win-x64 --compress GZip . -o ../Binaries/mft-runner-ui-win.exe",
+    "pkg:linux": "pkg --targets node18-linux-x64 . -o ../Binaries/mft-runner-ui-linux",
+    "pkg:mac": "pkg --targets node18-macos-x64 . -o ../Binaries/mft-runner-ui-macos",
+    "pkg:all": "npm run build && npm run pkg:win && npm run pkg:linux && npm run pkg:mac"
+  },
+  "pkg": {
+    "assets": "dist/**/*",
+    "scripts": "server.js"
   }
 }

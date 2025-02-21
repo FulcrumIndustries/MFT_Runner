@@ -68,7 +68,17 @@ test_history.json
 frontend/public/logs/
 frontend/public/logs/latest.log
 
+# Ignore all files in Work directory
 Work/*
+
+# Ignore all files in TestReports directory
 TestReports/*
+
+# Ignore the sample report file
+!TestReports/sample_UPLOAD_FTP_1KB_20250221_194519.json
+
+# Ignore all files in ftpreceive directory
 ftpreceive/*
+
+# Ignore all files in downloads directory
 downloads/*
